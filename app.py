@@ -2,12 +2,11 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
-from ai_model import predict_stock  # Import AI model
 
-# ✅ Force Redeploy - Final Timestamp Fix
 app = Flask(__name__)
 CORS(app)
 
+# ✅ Force Redeploy - Fixing Timestamp Issue & Ticker Support
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "QuantumVest AI Backend is Running!"})
@@ -31,27 +30,33 @@ def analyze():
         if hist.empty:
             return jsonify({"error": f"No data found for ticker {ticker}"}), 404
 
-        # ✅ Convert DataFrame index (Timestamp) into a column and format correctly
+        # ✅ Convert DataFrame index (Timestamp) into a column and ensure JSON serializability
         hist = hist.reset_index()
 
-        # ✅ Convert ALL datetime columns to strings
-        for col in hist.select_dtypes(include=["datetime64"]).columns:
-            hist[col] = hist[col].astype(str)
+        # ✅ Convert ALL datetime columns to string
+        hist["Date"] = hist["Date"].astype(str)
 
-        # ✅ Ensure all values are JSON serializable
+        # ✅ Convert numerical values to standard JSON types
         hist = hist.astype({
-            "Open": "float",
-            "High": "float",
-            "Low": "float",
-            "Close": "float",
-            "Volume": "int"
+            "Open": float,
+            "High": float,
+            "Low": float,
+            "Close": float,
+            "Volume": int
         })
 
         # ✅ Keep only necessary columns
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-        # ✅ Get AI-Based Predictions
-        prediction_result = predict_stock(hist)
+        # ✅ Placeholder AI Predictions (Replace with actual model later)
+        prediction_result = {
+            "trend": "Bullish",
+            "confidence": "80%",
+            "predicted_price": round(hist["Close"].mean() * 1.02, 2),  # Dummy AI prediction
+            "best_buy_date": hist["Date"].iloc[-10],  # Example: 10 days ago
+            "best_sell_date": hist["Date"].iloc[-1],  # Latest available date
+            "probability_of_success": "75%"
+        }
 
         return jsonify({
             "ticker": ticker,
