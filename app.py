@@ -87,3 +87,11 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=True)
+from flask import Flask
+
+app = Flask(__name__)
+
+# 🔍 Debugging: Print all available routes
+with app.test_request_context():
+    print("Registered Routes:")
+    print(app.url_map)
