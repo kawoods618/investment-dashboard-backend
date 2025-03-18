@@ -24,10 +24,12 @@ def analyze():
         # ✅ Convert DataFrame index (Timestamp) to a column
         hist = hist.reset_index()
 
-        # ✅ Convert Timestamp to string for JSON serialization
-        hist["Date"] = hist["Date"].astype(str)
+        # ✅ Convert ALL Timestamps in the DataFrame to Strings
+        for col in hist.columns:
+            if isinstance(hist[col].dtype, pd.DatetimeTZDtype) or "datetime64" in str(hist[col].dtype):
+                hist[col] = hist[col].astype(str)
 
-        # ✅ Drop unnecessary columns (ensure only needed data is sent)
+        # ✅ Keep only the necessary columns
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
         # ✅ Get AI-Based Predictions, Buy/Sell Dates & Probability
@@ -35,7 +37,7 @@ def analyze():
 
         return jsonify({
             "ticker": ticker,
-            "market_data": hist.to_dict(orient="records"),  # Convert to list of dictionaries
+            "market_data": hist.to_dict(orient="records"),  # Convert DataFrame to list of dictionaries
             "prediction": prediction_result
         })
 
