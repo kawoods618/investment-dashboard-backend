@@ -6,7 +6,9 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 
 app = Flask(__name__)
-CORS(app)
+
+# ✅ CORS Setup: Allow only your frontend to access the API
+CORS(app, resources={r"/api/*": {"origins": ["https://investment-dashboard-frontend-production.up.railway.app"]}})
 
 @app.route("/", methods=["GET"])
 def home():
@@ -25,16 +27,19 @@ def available_stocks():
 @app.route("/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
-    
+
     if not ticker:
         return jsonify({"error": "Ticker is required"}), 400
 
     try:
+        print(f"Fetching data for: {ticker}")  # ✅ Debugging
+
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y", auto_adjust=True)
 
         # ✅ Ensure data exists
         if hist.empty:
+            print(f"No data found for {ticker}")  # ✅ Debugging
             return jsonify({"error": f"No data found for ticker {ticker}"}), 404
 
         hist = hist.reset_index()
@@ -79,6 +84,7 @@ def analyze():
         })
 
     except Exception as e:
+        print(f"Error processing {ticker}: {str(e)}")  # ✅ Debugging
         return jsonify({"error": f"Failed to fetch market data for {ticker}: {str(e)}"}), 500
 
 if __name__ == "__main__":
