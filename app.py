@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yfinance as yf
+from ai_model import predict_stock  # Import AI model for predictions
 
 # ✅ Initialize Flask App
 app = Flask(__name__)
@@ -16,7 +17,7 @@ def home():
 def get_health():
     return jsonify({"ok": True})
 
-# ✅ Fetch Market Data from Yahoo Finance with Predictions
+# ✅ Fetch Market Data from Yahoo Finance with AI Predictions
 @app.route("/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
@@ -27,27 +28,17 @@ def analyze():
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y")
 
-        # ✅ Convert timestamps to strings
+        # ✅ Convert timestamps to strings for JSON serialization
         hist.reset_index(inplace=True)
-        hist["Date"] = hist["Date"].astype(str)  # Convert datetime to string
+        hist["Date"] = hist["Date"].astype(str)
 
-        # ✅ Basic AI Prediction (Replace with real model)
-        prediction = {
-            "trend": "Bullish" if hist["Close"].iloc[-1] > hist["Close"].iloc[-5] else "Bearish",
-            "confidence": "80%"  # Placeholder value
-        }
-
-        # ✅ Investment Recommendation
-        recommendation = {
-            "rating": "Strong Buy" if prediction["trend"] == "Bullish" else "Hold",
-            "reason": "Stock is showing positive momentum based on historical trends."
-        }
+        # ✅ Get AI-Based Predictions, Buy/Sell Dates & Probability
+        prediction_result = predict_stock(hist)
 
         return jsonify({
             "ticker": ticker,
             "market_data": hist.to_dict(orient="records"),
-            "prediction": prediction,
-            "recommendation": recommendation
+            "prediction": prediction_result
         })
 
     except Exception as e:
@@ -56,5 +47,5 @@ def analyze():
 # ✅ Ensure Flask Runs on Correct Port (for Railway)
 if __name__ == "__main__":
     import os
-    port = int(os.environ.get("PORT", 8080))  # Set default port to 8080
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=True)
