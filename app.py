@@ -6,7 +6,7 @@ import pandas as pd
 app = Flask(__name__)
 CORS(app)
 
-# ✅ Force Redeploy - Fixing Timestamp Issue & Ticker Support
+# ✅ Force Redeploy - Fixing Timestamp Formatting Issue
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "QuantumVest AI Backend is Running!"})
@@ -30,11 +30,9 @@ def analyze():
         if hist.empty:
             return jsonify({"error": f"No data found for ticker {ticker}"}), 404
 
-        # ✅ Convert DataFrame index (Timestamp) into a column and ensure JSON serializability
+        # ✅ Convert DataFrame index (Timestamp) into a column and remove timezone info
         hist = hist.reset_index()
-
-        # ✅ Convert ALL datetime columns to string
-        hist["Date"] = hist["Date"].astype(str)
+        hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")  # ✅ Format: YYYY-MM-DD
 
         # ✅ Convert numerical values to standard JSON types
         hist = hist.astype({
@@ -48,7 +46,7 @@ def analyze():
         # ✅ Keep only necessary columns
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-        # ✅ Placeholder AI Predictions (Replace with actual model later)
+        # ✅ AI-Based Predictions (Placeholder for Now)
         prediction_result = {
             "trend": "Bullish",
             "confidence": "80%",
