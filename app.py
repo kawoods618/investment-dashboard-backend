@@ -7,7 +7,7 @@ from sklearn.linear_model import LinearRegression
 
 app = Flask(__name__)
 
-# ✅ CORS Setup: Allow only your frontend to access the API
+# ✅ Allow requests only from the frontend
 CORS(app, resources={r"/api/*": {"origins": ["https://investment-dashboard-frontend-production.up.railway.app"]}})
 
 @app.route("/", methods=["GET"])
@@ -18,13 +18,7 @@ def home():
 def get_health():
     return jsonify({"ok": True})
 
-@app.route("/api/available_stocks", methods=["GET"])
-def available_stocks():
-    """Dynamically return a list of available stock tickers"""
-    stock_list = ["AAPL", "MSFT", "TSLA", "NVDA", "GOOGL", "AMZN", "META", "NFLX", "AMD", "BABA"]  # Expandable
-    return jsonify({"stocks": stock_list})
-
-@app.route("/analyze", methods=["GET"])
+@app.route("/api/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
 
@@ -32,15 +26,15 @@ def analyze():
         return jsonify({"error": "Ticker is required"}), 400
 
     try:
-        print(f"Fetching data for: {ticker}")  # ✅ Debugging
+        print(f"🔎 Fetching data for: {ticker}")
 
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y", auto_adjust=True)
 
-        # ✅ Ensure data exists
+        # ✅ Check if data is empty
         if hist.empty:
-            print(f"No data found for {ticker}")  # ✅ Debugging
-            return jsonify({"error": f"No data found for ticker {ticker}"}), 404
+            print(f"⚠️ No historical data found for {ticker}")
+            return jsonify({"error": f"No historical data available for {ticker}"}), 404
 
         hist = hist.reset_index()
         hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
@@ -71,10 +65,10 @@ def analyze():
         prediction_result = {
             "trend": "Bullish" if predicted_prices[0] > df["Close"].iloc[-1] else "Bearish",
             "confidence": f"{round(abs((predicted_prices[0] - df['Close'].iloc[-1]) / df['Close'].iloc[-1]) * 100, 1)}%",
-            "predicted_prices": predicted_prices,  # ✅ Now predicting 7 future prices
+            "predicted_prices": predicted_prices,
             "best_buy_date": best_buy_date,
             "best_sell_date": best_sell_date,
-            "probability_of_success": "80%"  # Placeholder
+            "probability_of_success": "80%"
         }
 
         return jsonify({
@@ -84,15 +78,10 @@ def analyze():
         })
 
     except Exception as e:
-        print(f"Error processing {ticker}: {str(e)}")  # ✅ Debugging
+        print(f"❌ Error processing {ticker}: {str(e)}")
         return jsonify({"error": f"Failed to fetch market data for {ticker}: {str(e)}"}), 500
 
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=True)
-
-# 🔍 Debugging: Print all available routes
-with app.test_request_context():
-    print("Registered Routes:")
-    print(app.url_map)
