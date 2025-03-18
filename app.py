@@ -4,7 +4,7 @@ import yfinance as yf
 import pandas as pd
 from ai_model import predict_stock  # Import AI model
 
-# ✅ Force Redeploy - Updated Timestamp Fix
+# ✅ Force Redeploy - Final Timestamp Fix
 app = Flask(__name__)
 CORS(app)
 
@@ -19,36 +19,38 @@ def get_health():
 @app.route("/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
+    
     if not ticker:
         return jsonify({"error": "Ticker is required"}), 400
 
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y")
+        hist = stock.history(period="1y", auto_adjust=True)
 
-        # Ensure data exists
+        # ✅ Ensure data exists
         if hist.empty:
-            return jsonify({"error": "No historical data found for this ticker"}), 404
+            return jsonify({"error": f"No data found for ticker {ticker}"}), 404
 
-        # Convert Timestamp index into a normal column
+        # ✅ Convert DataFrame index (Timestamp) into a column and format correctly
         hist = hist.reset_index()
 
-        # Convert ALL datetime columns to strings
-        hist["Date"] = hist["Date"].astype(str)
+        # ✅ Convert ALL datetime columns to strings
+        for col in hist.select_dtypes(include=["datetime64"]).columns:
+            hist[col] = hist[col].astype(str)
 
-        # Convert numerical values to standard JSON types
+        # ✅ Ensure all values are JSON serializable
         hist = hist.astype({
-            "Open": float, 
-            "High": float, 
-            "Low": float, 
-            "Close": float, 
-            "Volume": int
+            "Open": "float",
+            "High": "float",
+            "Low": "float",
+            "Close": "float",
+            "Volume": "int"
         })
 
-        # Keep only necessary columns
+        # ✅ Keep only necessary columns
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-        # Get AI-Based Predictions
+        # ✅ Get AI-Based Predictions
         prediction_result = predict_stock(hist)
 
         return jsonify({
@@ -58,7 +60,7 @@ def analyze():
         })
 
     except Exception as e:
-        return jsonify({"error": f"Failed to fetch market data: {str(e)}"}), 500
+        return jsonify({"error": f"Failed to fetch market data for {ticker}: {str(e)}"}), 500
 
 if __name__ == "__main__":
     import os
