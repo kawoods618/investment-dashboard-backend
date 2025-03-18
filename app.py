@@ -7,6 +7,14 @@ from ai_model import predict_stock  # Import AI model
 app = Flask(__name__)
 CORS(app)
 
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"message": "QuantumVest AI Backend is Running!"})
+
+@app.route("/api/health", methods=["GET"])
+def get_health():
+    return jsonify({"ok": True})
+
 @app.route("/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
@@ -21,15 +29,13 @@ def analyze():
         if hist.empty:
             return jsonify({"error": "No historical data found for this ticker"}), 404
 
-        # ✅ Convert DataFrame index (Timestamp) to a column
+        # ✅ Reset index and convert Timestamp index to a string
         hist = hist.reset_index()
+        
+        # ✅ Convert ALL columns with datetime values to string
+        hist["Date"] = hist["Date"].astype(str)
 
-        # ✅ Convert ALL Timestamps in the DataFrame to Strings
-        for col in hist.columns:
-            if isinstance(hist[col].dtype, pd.DatetimeTZDtype) or "datetime64" in str(hist[col].dtype):
-                hist[col] = hist[col].astype(str)
-
-        # ✅ Keep only the necessary columns
+        # ✅ Keep only necessary columns
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
         # ✅ Get AI-Based Predictions, Buy/Sell Dates & Probability
