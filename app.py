@@ -4,6 +4,7 @@ import yfinance as yf
 import pandas as pd
 from ai_model import predict_stock  # Import AI model
 
+# ✅ Force Redeploy - Updated Timestamp Fix
 app = Flask(__name__)
 CORS(app)
 
@@ -25,17 +26,17 @@ def analyze():
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y")
 
-        # ✅ Ensure data exists
+        # Ensure data exists
         if hist.empty:
             return jsonify({"error": "No historical data found for this ticker"}), 404
 
-        # ✅ Reset index to convert Timestamp index into a normal column
+        # Convert Timestamp index into a normal column
         hist = hist.reset_index()
 
-        # ✅ Convert ALL datetime columns to strings
+        # Convert ALL datetime columns to strings
         hist["Date"] = hist["Date"].astype(str)
 
-        # ✅ Explicitly convert all other values to standard JSON types
+        # Convert numerical values to standard JSON types
         hist = hist.astype({
             "Open": float, 
             "High": float, 
@@ -44,10 +45,10 @@ def analyze():
             "Volume": int
         })
 
-        # ✅ Select only the necessary columns
+        # Keep only necessary columns
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-        # ✅ Call AI model for predictions
+        # Get AI-Based Predictions
         prediction_result = predict_stock(hist)
 
         return jsonify({
