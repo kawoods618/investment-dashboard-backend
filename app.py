@@ -25,25 +25,34 @@ def analyze():
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y")
 
-        # ✅ Ensure there is historical data
+        # ✅ Ensure data exists
         if hist.empty:
             return jsonify({"error": "No historical data found for this ticker"}), 404
 
-        # ✅ Reset index and convert Timestamp index to a string
+        # ✅ Reset index to convert Timestamp index into a normal column
         hist = hist.reset_index()
-        
-        # ✅ Convert ALL columns with datetime values to string
+
+        # ✅ Convert ALL datetime columns to strings
         hist["Date"] = hist["Date"].astype(str)
 
-        # ✅ Keep only necessary columns
+        # ✅ Explicitly convert all other values to standard JSON types
+        hist = hist.astype({
+            "Open": float, 
+            "High": float, 
+            "Low": float, 
+            "Close": float, 
+            "Volume": int
+        })
+
+        # ✅ Select only the necessary columns
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-        # ✅ Get AI-Based Predictions, Buy/Sell Dates & Probability
+        # ✅ Call AI model for predictions
         prediction_result = predict_stock(hist)
 
         return jsonify({
             "ticker": ticker,
-            "market_data": hist.to_dict(orient="records"),  # Convert DataFrame to list of dictionaries
+            "market_data": hist.to_dict(orient="records"),
             "prediction": prediction_result
         })
 
