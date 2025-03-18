@@ -2,11 +2,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
+from sklearn.linear_model import LinearRegression
+import numpy as np
 
 app = Flask(__name__)
 CORS(app)
 
-# ✅ Force Redeploy - Fixing Timestamp Formatting Issue
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "QuantumVest AI Backend is Running!"})
@@ -46,14 +47,31 @@ def analyze():
         # ✅ Keep only necessary columns
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-        # ✅ AI-Based Predictions (Placeholder for Now)
+        # ✅ AI Prediction Model (Using Linear Regression)
+        df = hist.copy()
+        df["Day"] = np.arange(len(df))  # Convert dates to numerical sequence
+
+        # Train a simple linear regression model to predict future prices
+        X = df[["Day"]]
+        y = df["Close"]
+        model = LinearRegression()
+        model.fit(X, y)
+
+        # Predict stock price for next trading day
+        next_day = np.array([[len(df)]])
+        predicted_price = round(model.predict(next_day)[0], 2)
+
+        # Determine buy/sell dates based on past performance
+        best_buy_date = df.loc[df["Close"].idxmin(), "Date"]
+        best_sell_date = df.loc[df["Close"].idxmax(), "Date"]
+
         prediction_result = {
-            "trend": "Bullish",
-            "confidence": "80%",
-            "predicted_price": round(hist["Close"].mean() * 1.02, 2),  # Dummy AI prediction
-            "best_buy_date": hist["Date"].iloc[-10],  # Example: 10 days ago
-            "best_sell_date": hist["Date"].iloc[-1],  # Latest available date
-            "probability_of_success": "75%"
+            "trend": "Bullish" if predicted_price > df["Close"].iloc[-1] else "Bearish",
+            "confidence": f"{round(abs((predicted_price - df['Close'].iloc[-1]) / df['Close'].iloc[-1]) * 100, 1)}%",
+            "predicted_price": predicted_price,
+            "best_buy_date": best_buy_date,
+            "best_sell_date": best_sell_date,
+            "probability_of_success": "80%"  # Placeholder
         }
 
         return jsonify({
