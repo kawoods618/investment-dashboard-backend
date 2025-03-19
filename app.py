@@ -6,9 +6,7 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 
 app = Flask(__name__)
-
-# ✅ Allow requests only from the frontend
-CORS(app, resources={r"/api/*": {"origins": ["https://investment-dashboard-frontend-production.up.railway.app"]}})
+CORS(app)
 
 @app.route("/", methods=["GET"])
 def home():
@@ -26,39 +24,32 @@ def analyze():
         return jsonify({"error": "Ticker is required"}), 400
 
     try:
-        print(f"🔎 Fetching data for: {ticker}")
+        print(f"Fetching data for: {ticker}")
 
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y", auto_adjust=True)
 
-        # ✅ Check if data is empty
         if hist.empty:
-            print(f"⚠️ No historical data found for {ticker}")
-            return jsonify({"error": f"No historical data available for {ticker}"}), 404
+            print(f"No data found for {ticker}")
+            return jsonify({"error": f"No data found for ticker {ticker}"}), 404
 
         hist = hist.reset_index()
         hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
-
-        # ✅ Convert numerical values to JSON-friendly types
         hist = hist.astype({"Open": float, "High": float, "Low": float, "Close": float, "Volume": int})
         hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-        # ✅ AI Prediction Model (Multiple Days Forecast)
         df = hist.copy()
         df["Day"] = np.arange(len(df))
 
-        # Train Linear Regression for Basic Prediction
         X = df[["Day"]]
         y = df["Close"]
         model = LinearRegression()
         model.fit(X, y)
 
-        # Predict the next 7 trading days
         future_days = np.array([[len(df) + i] for i in range(1, 8)])
         predicted_prices = model.predict(future_days).tolist()
         predicted_prices = [round(price, 2) for price in predicted_prices]
 
-        # Determine best historical buy/sell dates
         best_buy_date = df.loc[df["Close"].idxmin(), "Date"]
         best_sell_date = df.loc[df["Close"].idxmax(), "Date"]
 
@@ -78,10 +69,12 @@ def analyze():
         })
 
     except Exception as e:
-        print(f"❌ Error processing {ticker}: {str(e)}")
+        print(f"Error processing {ticker}: {str(e)}")
         return jsonify({"error": f"Failed to fetch market data for {ticker}: {str(e)}"}), 500
 
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=True)
+
     app.run(host="0.0.0.0", port=port, debug=True)
