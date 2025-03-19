@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 
 # ✅ Fix CORS issues
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 @app.after_request
 def add_cors_headers(response):
@@ -24,7 +24,7 @@ def add_cors_headers(response):
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 GPT_SUMMARY_MODEL = pipeline("summarization")
 
-# ✅ Fetch all recognized stock tickers from Yahoo Finance
+# ✅ Fetch Stock & Crypto Tickers Once
 def get_valid_stock_tickers():
     try:
         url = "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=all_us_stocks"
@@ -36,7 +36,6 @@ def get_valid_stock_tickers():
         print(f"⚠️ Error fetching valid stock tickers: {e}")
         return set()
 
-# ✅ Fetch valid crypto tickers from CoinGecko
 def get_valid_crypto_tickers():
     try:
         response = requests.get(f"{COINGECKO_API_URL}/coins/list")
@@ -93,11 +92,11 @@ def fetch_crypto_data(ticker):
         print(f"⚠️ Error fetching crypto data for {ticker}: {e}")
     return None
 
-# ✅ Determine if ticker is a stock or crypto
+# ✅ Determine if ticker is stock or crypto
 def get_market_data(ticker):
     return fetch_crypto_data(ticker) or fetch_stock_data(ticker)
 
-# ✅ AI-Based Price Prediction
+# ✅ AI-Based Price Prediction (Prophet)
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": None, "next_7_days": None, "next_30_days": None}
@@ -126,7 +125,7 @@ def predict_prices(df):
         }
     }
 
-# ✅ AI Investment Decision Engine
+# ✅ AI Investment Advice
 def generate_investment_advice(predicted_prices, current_price):
     if None in predicted_prices.values():
         return {"trend": "Unknown", "advice": "HOLD", "confidence": "0%"}
@@ -144,9 +143,12 @@ def generate_investment_advice(predicted_prices, current_price):
 
 # ✅ AI-Generated Investment Summary
 def generate_summary(ticker):
-    input_text = f"Summarize financial trends, news, and market factors affecting {ticker}."
-    summary = GPT_SUMMARY_MODEL(input_text, max_length=150, min_length=50, do_sample=False)
-    return summary[0]["summary_text"]
+    try:
+        input_text = f"Summarize financial trends, news, and market factors affecting {ticker}."
+        summary = GPT_SUMMARY_MODEL(input_text, max_length=150, min_length=50, do_sample=False)
+        return summary[0]["summary_text"]
+    except Exception:
+        return "No summary available at the moment."
 
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
@@ -188,3 +190,4 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=True)
+
