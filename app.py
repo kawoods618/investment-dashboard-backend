@@ -10,13 +10,13 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# ✅ Correctly Allow CORS for Frontend
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+# ✅ Allow only frontend URL for security
+CORS(app, resources={r"/api/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}})
 
 # ✅ Ensure CORS Headers for Every Response
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Origin"] = "https://investment-dashboard-frontend-production.up.railway.app"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return response
