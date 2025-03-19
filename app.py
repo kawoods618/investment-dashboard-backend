@@ -24,7 +24,7 @@ def fetch_real_time_data(ticker):
 
         return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
     except Exception as e:
-        print(f"Error fetching data for {ticker}: {e}")
+        print(f"⚠️ Error fetching data for {ticker}: {e}")
         return None
 
 # ✅ AI-Based Price Prediction
@@ -72,21 +72,28 @@ def generate_investment_advice(predicted_prices, current_price):
 
 # ✅ Fetch Market News from NewsAPI
 def fetch_financial_news(ticker):
-    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"  # Replace with actual key
-    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={NEWS_API_KEY}"
-    
+    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"  # Replace this with your actual API key
+
+    if NEWS_API_KEY == "YOUR_NEWSAPI_KEY":
+        print("⚠️ Warning: NewsAPI key is missing. Please set a valid API key.")
+        return [{"title": "No News Available", "summary": "Financial news requires a valid API key."}]
+
+    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
+
     try:
         response = requests.get(url)
         if response.status_code == 200:
             news_data = response.json().get("articles", [])[:5]  # Get top 5 news articles
-            summarized_news = [
-                {"title": article["title"], "summary": article["description"]} for article in news_data
-            ]
+            if not news_data:
+                return [{"title": "No Recent News", "summary": f"No relevant news articles found for {ticker}."}]
+            summarized_news = [{"title": article["title"], "summary": article["description"]} for article in news_data]
             return summarized_news
+        else:
+            print(f"⚠️ Error fetching news: {response.status_code} - {response.text}")
+            return [{"title": "News Fetch Error", "summary": "Unable to retrieve financial news."}]
     except Exception as e:
-        print(f"Error fetching news: {e}")
-    
-    return []
+        print(f"⚠️ Exception fetching news: {e}")
+        return [{"title": "Error", "summary": "An error occurred while fetching financial news."}]
 
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
