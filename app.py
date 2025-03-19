@@ -10,10 +10,9 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# ✅ Allow ALL origins for now (Can be restricted later for security)
-CORS(app)
+# ✅ Allow all origins to fix CORS issues
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# ✅ Ensure CORS Headers for Every Response
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -30,8 +29,10 @@ def fetch_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
+
         if hist.empty:
             return None
+
         hist = hist.reset_index()
         hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
         hist = hist.astype({"Open": float, "High": float, "Low": float, "Close": float, "Volume": int})
@@ -47,11 +48,13 @@ def fetch_crypto_data(ticker):
         response = requests.get(coin_list_url)
         coin_list = response.json()
         crypto_id = next((coin["id"] for coin in coin_list if coin["symbol"].upper() == ticker.upper()), None)
+
         if not crypto_id:
-            return None  # ❌ Not found
+            return None  
 
         url = f"{COINGECKO_API_URL}/coins/{crypto_id}/market_chart?vs_currency=usd&days=180"
         response = requests.get(url)
+
         if response.status_code == 200:
             data = response.json()
             prices = data["prices"]
