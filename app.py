@@ -4,27 +4,18 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
-from sklearn.linear_model import LinearRegression
+from transformers import pipeline
+from prophet import Prophet
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 CORS(app)
 
-# ✅ CoinGecko API URL
+# ✅ APIs for Stocks & Crypto
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
+GPT_SUMMARY_MODEL = pipeline("summarization")
 
-# ✅ Mapping Crypto Tickers to CoinGecko IDs
-CRYPTO_TICKERS = {
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    "SOL": "solana",
-    "ADA": "cardano",
-    "DOGE": "dogecoin",
-    "XRP": "ripple",
-    "BNB": "binancecoin",
-    "DOT": "polkadot"
-}
-
-# ✅ Fetch Stock Data
+# ✅ Fetch Stock Data (Real-Time)
 def fetch_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -36,22 +27,29 @@ def fetch_stock_data(ticker):
         hist = hist.reset_index()
         hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
         hist = hist.astype({"Open": float, "High": float, "Low": float, "Close": float, "Volume": int})
-
         return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
     except Exception as e:
         print(f"⚠️ Error fetching stock data for {ticker}: {e}")
         return None
 
-# ✅ Fetch Crypto Data
+# ✅ Fetch Crypto Data (Works for ANY Crypto)
 def fetch_crypto_data(ticker):
-    crypto_id = CRYPTO_TICKERS.get(ticker.upper())  # Convert ticker (BTC) to CoinGecko ID (bitcoin)
-    if not crypto_id:
-        return None  # Return None if the crypto ID is not found
-
-    url = f"{COINGECKO_API_URL}/coins/{crypto_id}/market_chart?vs_currency=usd&days=180"
-
     try:
+        # ✅ Dynamically fetch all CoinGecko crypto IDs
+        coin_list_url = f"{COINGECKO_API_URL}/coins/list"
+        response = requests.get(coin_list_url)
+        coin_list = response.json()
+
+        # ✅ Find the correct CoinGecko ID for the entered ticker
+        crypto_id = next((coin["id"] for coin in coin_list if coin["symbol"].upper() == ticker.upper()), None)
+
+        if not crypto_id:
+            return None  # ❌ Crypto ticker not found in CoinGecko API
+
+        # ✅ Fetch historical market data for the identified crypto ID
+        url = f"{COINGECKO_API_URL}/coins/{crypto_id}/market_chart?vs_currency=usd&days=180"
         response = requests.get(url)
+
         if response.status_code == 200:
             data = response.json()
             prices = data["prices"]
@@ -61,47 +59,43 @@ def fetch_crypto_data(ticker):
             hist["High"] = hist["price"]
             hist["Low"] = hist["price"]
             hist["Close"] = hist["price"]
-            hist["Volume"] = 0  # Crypto volume not available in this endpoint
+            hist["Volume"] = 0  # CoinGecko API does not provide volume for market charts
             return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
     except Exception as e:
         print(f"⚠️ Error fetching crypto data for {ticker}: {e}")
     return None
 
-# ✅ Determine if ticker is crypto or stock
+# ✅ Determine if ticker is stock or crypto
 def get_market_data(ticker):
-    if ticker.upper() in CRYPTO_TICKERS:
-        return fetch_crypto_data(ticker)
-    else:
-        return fetch_stock_data(ticker)
+    return fetch_crypto_data(ticker) if fetch_crypto_data(ticker) else fetch_stock_data(ticker)
 
-# ✅ AI-Based Price Prediction
+# ✅ AI-Based Price Prediction (Prophet Model)
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": None, "next_week": None, "next_month": None}
 
-    df["Day"] = np.arange(len(df))
-    X = df[["Day"]]
-    y = df["Close"]
-    model = LinearRegression()
-    model.fit(X, y)
+    df["ds"] = pd.to_datetime(df["Date"])
+    df["y"] = df["Close"]
+    
+    model = Prophet()
+    model.fit(df[["ds", "y"]])
 
-    future_days = {
-        "next_day": np.array([[len(df) + 1]]),
-        "next_week": np.array([[len(df) + 7]]),
-        "next_month": np.array([[len(df) + 30]])
+    future = model.make_future_dataframe(periods=30)
+    forecast = model.predict(future)
+
+    return {
+        "next_day": round(forecast.iloc[-30]["yhat"], 2),
+        "next_week": round(forecast.iloc[-23]["yhat"], 2),
+        "next_month": round(forecast.iloc[-1]["yhat"], 2)
     }
 
-    predicted_prices = {key: round(model.predict(value)[0], 2) for key, value in future_days.items()}
-    return predicted_prices
-
-# ✅ AI Investment Strategy Model
+# ✅ AI Investment Decision Engine
 def generate_investment_advice(predicted_prices, current_price):
     if None in predicted_prices.values():
         return {"trend": "Unknown", "advice": "HOLD", "confidence": "0%"}
 
     trend = "Bullish" if predicted_prices["next_day"] > current_price else "Bearish"
     advice = "HOLD"
-
     if trend == "Bullish" and predicted_prices["next_day"] > current_price * 1.02:
         advice = "BUY"
     elif trend == "Bearish" and predicted_prices["next_day"] < current_price * 0.98:
@@ -111,25 +105,11 @@ def generate_investment_advice(predicted_prices, current_price):
     
     return {"trend": trend, "advice": advice, "confidence": confidence}
 
-# ✅ Fetch Market News from NewsAPI
-def fetch_financial_news(ticker):
-    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"  # Replace this with your NewsAPI key
-
-    if NEWS_API_KEY == "YOUR_NEWSAPI_KEY":
-        return [{"title": "No News Available", "summary": "Set a valid NewsAPI key."}]
-
-    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
-
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            news_data = response.json().get("articles", [])[:5]
-            if not news_data:
-                return [{"title": "No Recent News", "summary": f"No relevant news found for {ticker}."}]
-            return [{"title": article["title"], "summary": article["description"]} for article in news_data]
-    except Exception as e:
-        print(f"⚠️ Error fetching news: {e}")
-        return [{"title": "Error", "summary": "News API request failed."}]
+# ✅ AI-Generated Investment Summary (GPT Model)
+def generate_summary(ticker):
+    input_text = f"Summarize financial trends, news, and market factors affecting {ticker}."
+    summary = GPT_SUMMARY_MODEL(input_text, max_length=150, min_length=50, do_sample=False)
+    return summary[0]["summary_text"]
 
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
@@ -146,7 +126,7 @@ def analyze():
         current_price = hist["Close"].iloc[-1]
         predicted_prices = predict_prices(hist)
         investment_advice = generate_investment_advice(predicted_prices, current_price)
-        financial_news = fetch_financial_news(ticker)
+        ai_summary = generate_summary(ticker)
 
         return jsonify({
             "ticker": ticker,
@@ -161,12 +141,10 @@ def analyze():
                 "best_buy_date": hist.loc[hist["Close"].idxmin(), "Date"],
                 "best_sell_date": hist.loc[hist["Close"].idxmax(), "Date"],
                 "probability_of_success": "85%",
-                "financial_news": financial_news
+                "investment_summary": ai_summary
             }
         })
-
     except Exception as e:
-        print(f"Backend error: {e}")
         return jsonify({"error": f"Market data fetch failed: {str(e)}"}), 500
 
 if __name__ == "__main__":
