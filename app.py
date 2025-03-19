@@ -9,8 +9,11 @@ from sklearn.linear_model import LinearRegression
 app = Flask(__name__)
 CORS(app)
 
-# ✅ Fetch Historical Stock Data
-def fetch_real_time_data(ticker):
+# CoinGecko API URL for cryptocurrency data
+COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
+
+# ✅ Fetch Stock Data
+def fetch_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
@@ -24,8 +27,38 @@ def fetch_real_time_data(ticker):
 
         return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
     except Exception as e:
-        print(f"⚠️ Error fetching data for {ticker}: {e}")
+        print(f"⚠️ Error fetching stock data for {ticker}: {e}")
         return None
+
+# ✅ Fetch Crypto Data
+def fetch_crypto_data(ticker):
+    url = f"{COINGECKO_API_URL}/coins/{ticker}/market_chart?vs_currency=usd&days=180"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            prices = data["prices"]
+            hist = pd.DataFrame(prices, columns=["timestamp", "price"])
+            hist["Date"] = pd.to_datetime(hist["timestamp"], unit='ms').dt.strftime("%Y-%m-%d")
+            hist["Open"] = hist["price"]
+            hist["High"] = hist["price"]
+            hist["Low"] = hist["price"]
+            hist["Close"] = hist["price"]
+            hist["Volume"] = 0  # Crypto volume not available in this endpoint
+            return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
+    except Exception as e:
+        print(f"⚠️ Error fetching crypto data for {ticker}: {e}")
+    return None
+
+# ✅ Determine if ticker is crypto or stock
+def get_market_data(ticker):
+    ticker = ticker.lower()
+    crypto_list = ["bitcoin", "ethereum", "solana", "cardano", "dogecoin", "ripple"]
+    
+    if ticker in crypto_list:
+        return fetch_crypto_data(ticker)
+    else:
+        return fetch_stock_data(ticker)
 
 # ✅ AI-Based Price Prediction
 def predict_prices(df):
@@ -40,17 +73,11 @@ def predict_prices(df):
 
     future_days = {
         "next_day": np.array([[len(df) + 1]]),
-        "next_week": np.array([[len(df) + 5]]),
-        "next_month": np.array([[len(df) + 20]])
+        "next_week": np.array([[len(df) + 7]]),
+        "next_month": np.array([[len(df) + 30]])
     }
 
-    predicted_prices = {}
-    for key, value in future_days.items():
-        try:
-            predicted_prices[key] = round(model.predict(value)[0], 2)
-        except:
-            predicted_prices[key] = None  # Handle cases where model fails
-
+    predicted_prices = {key: round(model.predict(value)[0], 2) for key, value in future_days.items()}
     return predicted_prices
 
 # ✅ AI Investment Strategy Model
@@ -72,11 +99,10 @@ def generate_investment_advice(predicted_prices, current_price):
 
 # ✅ Fetch Market News from NewsAPI
 def fetch_financial_news(ticker):
-    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"  # Replace this with your actual API key
+    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"  # Replace this with your NewsAPI key
 
     if NEWS_API_KEY == "YOUR_NEWSAPI_KEY":
-        print("⚠️ Warning: NewsAPI key is missing. Please set a valid API key.")
-        return [{"title": "No News Available", "summary": "Financial news requires a valid API key."}]
+        return [{"title": "No News Available", "summary": "Set a valid NewsAPI key."}]
 
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
 
@@ -85,27 +111,23 @@ def fetch_financial_news(ticker):
         if response.status_code == 200:
             news_data = response.json().get("articles", [])[:5]  # Get top 5 news articles
             if not news_data:
-                return [{"title": "No Recent News", "summary": f"No relevant news articles found for {ticker}."}]
-            summarized_news = [{"title": article["title"], "summary": article["description"]} for article in news_data]
-            return summarized_news
-        else:
-            print(f"⚠️ Error fetching news: {response.status_code} - {response.text}")
-            return [{"title": "News Fetch Error", "summary": "Unable to retrieve financial news."}]
+                return [{"title": "No Recent News", "summary": f"No relevant news found for {ticker}."}]
+            return [{"title": article["title"], "summary": article["description"]} for article in news_data]
     except Exception as e:
-        print(f"⚠️ Exception fetching news: {e}")
-        return [{"title": "Error", "summary": "An error occurred while fetching financial news."}]
+        print(f"⚠️ Error fetching news: {e}")
+        return [{"title": "Error", "summary": "News API request failed."}]
 
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
-    ticker = request.args.get("ticker", "").upper()
+    ticker = request.args.get("ticker", "").lower()
     
     if not ticker or len(ticker) < 2:
-        return jsonify({"error": "Please enter a valid stock or crypto ticker (min 2 characters)."}), 400
+        return jsonify({"error": "Enter a valid stock or crypto ticker (min 2 characters)."}), 400
 
     try:
-        hist = fetch_real_time_data(ticker)
+        hist = get_market_data(ticker)
         if hist is None or hist.empty:
-            return jsonify({"error": f"No real-time data found for {ticker}. Try a different ticker."}), 404
+            return jsonify({"error": f"No data found for {ticker}. Try a different ticker."}), 404
 
         current_price = hist["Close"].iloc[-1]
         predicted_prices = predict_prices(hist)
@@ -113,7 +135,7 @@ def analyze():
         financial_news = fetch_financial_news(ticker)
 
         return jsonify({
-            "ticker": ticker,
+            "ticker": ticker.upper(),
             "market_data": hist.to_dict(orient="records"),
             "prediction": {
                 "trend": investment_advice["trend"],
@@ -131,7 +153,7 @@ def analyze():
 
     except Exception as e:
         print(f"Backend error: {e}")
-        return jsonify({"error": f"Failed to fetch market data. Error: {str(e)}"}), 500
+        return jsonify({"error": f"Market data fetch failed: {str(e)}"}), 500
 
 if __name__ == "__main__":
     import os
