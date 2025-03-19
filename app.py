@@ -5,24 +5,27 @@ import pandas as pd
 import numpy as np
 import requests
 from sklearn.linear_model import LinearRegression
-from datetime import datetime, timedelta
 
 app = Flask(__name__)
 CORS(app)
 
 # ✅ Fetch Historical Stock Data
 def fetch_real_time_data(ticker):
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
 
-    if hist.empty:
+        if hist.empty:
+            return None
+
+        hist = hist.reset_index()
+        hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
+        hist = hist.astype({"Open": float, "High": float, "Low": float, "Close": float, "Volume": int})
+
+        return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
+    except Exception as e:
+        print(f"Error fetching data for {ticker}: {e}")
         return None
-
-    hist = hist.reset_index()
-    hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
-    hist = hist.astype({"Open": float, "High": float, "Low": float, "Close": float, "Volume": int})
-    
-    return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
 # ✅ AI-Based Price Prediction
 def predict_prices(df):
@@ -41,7 +44,13 @@ def predict_prices(df):
         "next_month": np.array([[len(df) + 20]])
     }
 
-    predicted_prices = {key: round(model.predict(value)[0], 2) for key, value in future_days.items()}
+    predicted_prices = {}
+    for key, value in future_days.items():
+        try:
+            predicted_prices[key] = round(model.predict(value)[0], 2)
+        except:
+            predicted_prices[key] = None  # Handle cases where model fails
+
     return predicted_prices
 
 # ✅ AI Investment Strategy Model
@@ -63,29 +72,33 @@ def generate_investment_advice(predicted_prices, current_price):
 
 # ✅ Fetch Market News from NewsAPI
 def fetch_financial_news(ticker):
-    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"
+    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"  # Replace with actual key
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={NEWS_API_KEY}"
     
-    response = requests.get(url)
-    if response.status_code == 200:
-        news_data = response.json().get("articles", [])[:5]  # Get top 5 news articles
-        summarized_news = [
-            {"title": article["title"], "summary": article["description"]} for article in news_data
-        ]
-        return summarized_news
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            news_data = response.json().get("articles", [])[:5]  # Get top 5 news articles
+            summarized_news = [
+                {"title": article["title"], "summary": article["description"]} for article in news_data
+            ]
+            return summarized_news
+    except Exception as e:
+        print(f"Error fetching news: {e}")
+    
     return []
 
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
     
-    if not ticker:
-        return jsonify({"error": "Ticker is required"}), 400
+    if not ticker or len(ticker) < 2:
+        return jsonify({"error": "Please enter a valid stock or crypto ticker (min 2 characters)."}), 400
 
     try:
         hist = fetch_real_time_data(ticker)
         if hist is None or hist.empty:
-            return jsonify({"error": f"No real-time data found for {ticker}"}), 404
+            return jsonify({"error": f"No real-time data found for {ticker}. Try a different ticker."}), 404
 
         current_price = hist["Close"].iloc[-1]
         predicted_prices = predict_prices(hist)
@@ -100,8 +113,8 @@ def analyze():
                 "advice": investment_advice["advice"],
                 "confidence": investment_advice["confidence"],
                 "predicted_prices": predicted_prices,
-                "best_buy_price": min(hist["Close"]),
-                "best_sell_price": max(hist["Close"]),
+                "best_buy_price": round(hist["Close"].min(), 2),
+                "best_sell_price": round(hist["Close"].max(), 2),
                 "best_buy_date": hist.loc[hist["Close"].idxmin(), "Date"],
                 "best_sell_date": hist.loc[hist["Close"].idxmax(), "Date"],
                 "probability_of_success": "85%",
@@ -110,7 +123,8 @@ def analyze():
         })
 
     except Exception as e:
-        return jsonify({"error": f"Failed to fetch market data: {str(e)}"}), 500
+        print(f"Backend error: {e}")
+        return jsonify({"error": f"Failed to fetch market data. Error: {str(e)}"}), 500
 
 if __name__ == "__main__":
     import os
