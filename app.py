@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# ✅ Allow all origins to fix CORS issues
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# ✅ Allow all origins for CORS
+CORS(app)
 
 # ✅ Ensure CORS Headers for Every Response
 @app.after_request
@@ -79,7 +79,11 @@ def get_market_data(ticker):
 # ✅ AI-Based Price Prediction (Using Prophet)
 def predict_prices(df):
     if df is None or df.empty:
-        return {"next_day": None, "next_7_days": None, "next_30_days": None}
+        return {
+            "next_day": {"date": None, "price": None},
+            "next_7_days": {"date": None, "price": None},
+            "next_30_days": {"date": None, "price": None}
+        }
 
     df["ds"] = pd.to_datetime(df["Date"])
     df["y"] = df["Close"]
