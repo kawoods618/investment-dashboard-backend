@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# ✅ Allow all origins to fix CORS issues
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# ✅ Fix CORS issues
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 @app.after_request
 def add_cors_headers(response):
@@ -24,9 +24,36 @@ def add_cors_headers(response):
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 GPT_SUMMARY_MODEL = pipeline("summarization")
 
+# ✅ Fetch all recognized stock tickers from Yahoo Finance
+def get_valid_stock_tickers():
+    try:
+        url = "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=all_us_stocks"
+        response = requests.get(url)
+        data = response.json()
+        tickers = {stock["symbol"] for stock in data.get("finance", {}).get("result", [])[0].get("quotes", [])}
+        return tickers
+    except Exception as e:
+        print(f"⚠️ Error fetching valid stock tickers: {e}")
+        return set()
+
+# ✅ Fetch valid crypto tickers from CoinGecko
+def get_valid_crypto_tickers():
+    try:
+        response = requests.get(f"{COINGECKO_API_URL}/coins/list")
+        return {coin["symbol"].upper(): coin["id"] for coin in response.json()}
+    except Exception as e:
+        print(f"⚠️ Error fetching crypto tickers: {e}")
+        return {}
+
+VALID_STOCK_TICKERS = get_valid_stock_tickers()
+VALID_CRYPTO_TICKERS = get_valid_crypto_tickers()
+
 # ✅ Fetch Stock Data
 def fetch_stock_data(ticker):
     try:
+        if ticker not in VALID_STOCK_TICKERS:
+            return None
+
         stock = yf.Ticker(ticker)
         hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
 
@@ -41,16 +68,12 @@ def fetch_stock_data(ticker):
         print(f"⚠️ Error fetching stock data for {ticker}: {e}")
         return None
 
-# ✅ Fetch Crypto Data (Supports All Cryptos)
+# ✅ Fetch Crypto Data
 def fetch_crypto_data(ticker):
     try:
-        coin_list_url = f"{COINGECKO_API_URL}/coins/list"
-        response = requests.get(coin_list_url)
-        coin_list = response.json()
-        crypto_id = next((coin["id"] for coin in coin_list if coin["symbol"].upper() == ticker.upper()), None)
-
+        crypto_id = VALID_CRYPTO_TICKERS.get(ticker.upper())
         if not crypto_id:
-            return None  
+            return None
 
         url = f"{COINGECKO_API_URL}/coins/{crypto_id}/market_chart?vs_currency=usd&days=180"
         response = requests.get(url)
@@ -72,10 +95,9 @@ def fetch_crypto_data(ticker):
 
 # ✅ Determine if ticker is a stock or crypto
 def get_market_data(ticker):
-    crypto_data = fetch_crypto_data(ticker)
-    return crypto_data if crypto_data is not None else fetch_stock_data(ticker)
+    return fetch_crypto_data(ticker) or fetch_stock_data(ticker)
 
-# ✅ AI-Based Price Prediction (Using Prophet)
+# ✅ AI-Based Price Prediction
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": None, "next_7_days": None, "next_30_days": None}
@@ -120,7 +142,7 @@ def generate_investment_advice(predicted_prices, current_price):
     
     return {"trend": trend, "advice": advice, "confidence": confidence}
 
-# ✅ AI-Generated Investment Summary (GPT Model)
+# ✅ AI-Generated Investment Summary
 def generate_summary(ticker):
     input_text = f"Summarize financial trends, news, and market factors affecting {ticker}."
     summary = GPT_SUMMARY_MODEL(input_text, max_length=150, min_length=50, do_sample=False)
@@ -131,7 +153,7 @@ def analyze():
     ticker = request.args.get("ticker", "").upper()
     
     if not ticker or len(ticker) < 2:
-        return jsonify({"error": "Enter a valid stock or crypto ticker (min 2 characters)."}), 400
+        return jsonify({"error": "Enter a valid stock or crypto ticker (at least 2 characters)."}), 400
 
     try:
         hist = get_market_data(ticker)
