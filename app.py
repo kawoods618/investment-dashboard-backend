@@ -9,7 +9,17 @@ from prophet import Prophet
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-CORS(app)
+
+# ✅ Correctly Allow CORS for Frontend
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+# ✅ Ensure CORS Headers for Every Response
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
 
 # ✅ APIs for Stocks & Crypto
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
@@ -32,7 +42,7 @@ def fetch_stock_data(ticker):
         print(f"⚠️ Error fetching stock data for {ticker}: {e}")
         return None
 
-# ✅ Fetch Crypto Data (Works for ANY Crypto)
+# ✅ Fetch Crypto Data (Works for ALL Cryptos)
 def fetch_crypto_data(ticker):
     try:
         # ✅ Dynamically fetch all CoinGecko crypto IDs
@@ -67,7 +77,8 @@ def fetch_crypto_data(ticker):
 
 # ✅ Determine if ticker is stock or crypto
 def get_market_data(ticker):
-    return fetch_crypto_data(ticker) if fetch_crypto_data(ticker) else fetch_stock_data(ticker)
+    crypto_data = fetch_crypto_data(ticker)
+    return crypto_data if crypto_data is not None else fetch_stock_data(ticker)
 
 # ✅ AI-Based Price Prediction (Prophet Model)
 def predict_prices(df):
