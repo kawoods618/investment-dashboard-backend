@@ -10,22 +10,22 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# ✅ Allow only frontend URL for security
-CORS(app, resources={r"/api/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}})
+# ✅ Allow all origins to fix CORS issues
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # ✅ Ensure CORS Headers for Every Response
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "https://investment-dashboard-frontend-production.up.railway.app"
+    response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return response
 
-# ✅ APIs for Stocks & Crypto
+# ✅ API URLs
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 GPT_SUMMARY_MODEL = pipeline("summarization")
 
-# ✅ Fetch Stock Data (Real-Time)
+# ✅ Fetch Stock Data
 def fetch_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -42,21 +42,17 @@ def fetch_stock_data(ticker):
         print(f"⚠️ Error fetching stock data for {ticker}: {e}")
         return None
 
-# ✅ Fetch Crypto Data (Works for ALL Cryptos)
+# ✅ Fetch Crypto Data (Supports All Cryptos)
 def fetch_crypto_data(ticker):
     try:
-        # ✅ Dynamically fetch all CoinGecko crypto IDs
         coin_list_url = f"{COINGECKO_API_URL}/coins/list"
         response = requests.get(coin_list_url)
         coin_list = response.json()
-
-        # ✅ Find the correct CoinGecko ID for the entered ticker
         crypto_id = next((coin["id"] for coin in coin_list if coin["symbol"].upper() == ticker.upper()), None)
 
         if not crypto_id:
-            return None  # ❌ Crypto ticker not found in CoinGecko API
+            return None  # ❌ Not found
 
-        # ✅ Fetch historical market data for the identified crypto ID
         url = f"{COINGECKO_API_URL}/coins/{crypto_id}/market_chart?vs_currency=usd&days=180"
         response = requests.get(url)
 
@@ -69,21 +65,21 @@ def fetch_crypto_data(ticker):
             hist["High"] = hist["price"]
             hist["Low"] = hist["price"]
             hist["Close"] = hist["price"]
-            hist["Volume"] = 0  # CoinGecko API does not provide volume for market charts
+            hist["Volume"] = 0  
             return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
     except Exception as e:
         print(f"⚠️ Error fetching crypto data for {ticker}: {e}")
     return None
 
-# ✅ Determine if ticker is stock or crypto
+# ✅ Determine if ticker is a stock or crypto
 def get_market_data(ticker):
     crypto_data = fetch_crypto_data(ticker)
     return crypto_data if crypto_data is not None else fetch_stock_data(ticker)
 
-# ✅ AI-Based Price Prediction (Prophet Model)
+# ✅ AI-Based Price Prediction (Using Prophet)
 def predict_prices(df):
     if df is None or df.empty:
-        return {"next_day": None, "next_week": None, "next_month": None}
+        return {"next_day": None, "next_7_days": None, "next_30_days": None}
 
     df["ds"] = pd.to_datetime(df["Date"])
     df["y"] = df["Close"]
@@ -95,9 +91,18 @@ def predict_prices(df):
     forecast = model.predict(future)
 
     return {
-        "next_day": round(forecast.iloc[-30]["yhat"], 2),
-        "next_week": round(forecast.iloc[-23]["yhat"], 2),
-        "next_month": round(forecast.iloc[-1]["yhat"], 2)
+        "next_day": {
+            "date": (datetime.today() + timedelta(days=1)).strftime("%Y-%m-%d"),
+            "price": round(forecast.iloc[-30]["yhat"], 2)
+        },
+        "next_7_days": {
+            "date": (datetime.today() + timedelta(days=7)).strftime("%Y-%m-%d"),
+            "price": round(forecast.iloc[-23]["yhat"], 2)
+        },
+        "next_30_days": {
+            "date": (datetime.today() + timedelta(days=30)).strftime("%Y-%m-%d"),
+            "price": round(forecast.iloc[-1]["yhat"], 2)
+        }
     }
 
 # ✅ AI Investment Decision Engine
@@ -105,14 +110,14 @@ def generate_investment_advice(predicted_prices, current_price):
     if None in predicted_prices.values():
         return {"trend": "Unknown", "advice": "HOLD", "confidence": "0%"}
 
-    trend = "Bullish" if predicted_prices["next_day"] > current_price else "Bearish"
+    trend = "Bullish" if predicted_prices["next_day"]["price"] > current_price else "Bearish"
     advice = "HOLD"
-    if trend == "Bullish" and predicted_prices["next_day"] > current_price * 1.02:
+    if trend == "Bullish" and predicted_prices["next_day"]["price"] > current_price * 1.02:
         advice = "BUY"
-    elif trend == "Bearish" and predicted_prices["next_day"] < current_price * 0.98:
+    elif trend == "Bearish" and predicted_prices["next_day"]["price"] < current_price * 0.98:
         advice = "SELL"
 
-    confidence = f"{round(abs((predicted_prices['next_day'] - current_price) / current_price) * 100, 1)}%"
+    confidence = f"{round(abs((predicted_prices['next_day']['price'] - current_price) / current_price) * 100, 1)}%"
     
     return {"trend": trend, "advice": advice, "confidence": confidence}
 
