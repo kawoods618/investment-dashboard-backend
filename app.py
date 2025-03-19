@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# ✅ Allow all origins for CORS
+# ✅ Allow ALL origins for now (Can be restricted later for security)
 CORS(app)
 
 # ✅ Ensure CORS Headers for Every Response
@@ -30,10 +30,8 @@ def fetch_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
-
         if hist.empty:
             return None
-
         hist = hist.reset_index()
         hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
         hist = hist.astype({"Open": float, "High": float, "Low": float, "Close": float, "Volume": int})
@@ -49,13 +47,11 @@ def fetch_crypto_data(ticker):
         response = requests.get(coin_list_url)
         coin_list = response.json()
         crypto_id = next((coin["id"] for coin in coin_list if coin["symbol"].upper() == ticker.upper()), None)
-
         if not crypto_id:
             return None  # ❌ Not found
 
         url = f"{COINGECKO_API_URL}/coins/{crypto_id}/market_chart?vs_currency=usd&days=180"
         response = requests.get(url)
-
         if response.status_code == 200:
             data = response.json()
             prices = data["prices"]
@@ -79,11 +75,7 @@ def get_market_data(ticker):
 # ✅ AI-Based Price Prediction (Using Prophet)
 def predict_prices(df):
     if df is None or df.empty:
-        return {
-            "next_day": {"date": None, "price": None},
-            "next_7_days": {"date": None, "price": None},
-            "next_30_days": {"date": None, "price": None}
-        }
+        return {"next_day": None, "next_7_days": None, "next_30_days": None}
 
     df["ds"] = pd.to_datetime(df["Date"])
     df["y"] = df["Close"]
