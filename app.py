@@ -31,7 +31,7 @@ def analyze():
 
         if hist.empty:
             print(f"No data found for {ticker}")
-            return jsonify({"error": f"No data found for ticker {ticker}"}), 404
+            return jsonify({"error": f"No historical data available for {ticker}"}), 404
 
         hist = hist.reset_index()
         hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
@@ -75,6 +75,4 @@ def analyze():
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
-
     app.run(host="0.0.0.0", port=port, debug=True)
