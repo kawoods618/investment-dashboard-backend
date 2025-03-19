@@ -9,8 +9,20 @@ from sklearn.linear_model import LinearRegression
 app = Flask(__name__)
 CORS(app)
 
-# CoinGecko API URL for cryptocurrency data
+# ✅ CoinGecko API URL
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
+
+# ✅ Mapping Crypto Tickers to CoinGecko IDs
+CRYPTO_TICKERS = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "SOL": "solana",
+    "ADA": "cardano",
+    "DOGE": "dogecoin",
+    "XRP": "ripple",
+    "BNB": "binancecoin",
+    "DOT": "polkadot"
+}
 
 # ✅ Fetch Stock Data
 def fetch_stock_data(ticker):
@@ -32,7 +44,12 @@ def fetch_stock_data(ticker):
 
 # ✅ Fetch Crypto Data
 def fetch_crypto_data(ticker):
-    url = f"{COINGECKO_API_URL}/coins/{ticker}/market_chart?vs_currency=usd&days=180"
+    crypto_id = CRYPTO_TICKERS.get(ticker.upper())  # Convert ticker (BTC) to CoinGecko ID (bitcoin)
+    if not crypto_id:
+        return None  # Return None if the crypto ID is not found
+
+    url = f"{COINGECKO_API_URL}/coins/{crypto_id}/market_chart?vs_currency=usd&days=180"
+
     try:
         response = requests.get(url)
         if response.status_code == 200:
@@ -52,10 +69,7 @@ def fetch_crypto_data(ticker):
 
 # ✅ Determine if ticker is crypto or stock
 def get_market_data(ticker):
-    ticker = ticker.lower()
-    crypto_list = ["bitcoin", "ethereum", "solana", "cardano", "dogecoin", "ripple"]
-    
-    if ticker in crypto_list:
+    if ticker.upper() in CRYPTO_TICKERS:
         return fetch_crypto_data(ticker)
     else:
         return fetch_stock_data(ticker)
@@ -109,7 +123,7 @@ def fetch_financial_news(ticker):
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            news_data = response.json().get("articles", [])[:5]  # Get top 5 news articles
+            news_data = response.json().get("articles", [])[:5]
             if not news_data:
                 return [{"title": "No Recent News", "summary": f"No relevant news found for {ticker}."}]
             return [{"title": article["title"], "summary": article["description"]} for article in news_data]
@@ -119,7 +133,7 @@ def fetch_financial_news(ticker):
 
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
-    ticker = request.args.get("ticker", "").lower()
+    ticker = request.args.get("ticker", "").upper()
     
     if not ticker or len(ticker) < 2:
         return jsonify({"error": "Enter a valid stock or crypto ticker (min 2 characters)."}), 400
@@ -135,7 +149,7 @@ def analyze():
         financial_news = fetch_financial_news(ticker)
 
         return jsonify({
-            "ticker": ticker.upper(),
+            "ticker": ticker,
             "market_data": hist.to_dict(orient="records"),
             "prediction": {
                 "trend": investment_advice["trend"],
