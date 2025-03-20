@@ -8,12 +8,12 @@ import traceback
 
 app = Flask(__name__)
 
-# ✅ Fix CORS: Allow all frontend requests
+# ✅ Allow all frontend requests
 CORS(app)
 
 @app.after_request
 def add_cors_headers(response):
-    """Ensures all responses include the necessary CORS headers."""
+    """Ensures all responses include necessary CORS headers."""
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
@@ -27,7 +27,7 @@ def handle_exception(e):
     response.status_code = 500
     return response
 
-# ✅ Fetch Historical Stock Data
+# ✅ Fetch Stock Data
 def fetch_real_time_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -41,7 +41,7 @@ def fetch_real_time_data(ticker):
         print("Error in fetch_real_time_data:", e)
         return None
 
-# ✅ AI Price Prediction using Prophet
+# ✅ AI-Based Stock Price Predictions
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
@@ -60,25 +60,18 @@ def predict_prices(df):
         print("Error in predict_prices:", e)
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
 
-# ✅ AI-Based Market News Summary (Instead of Linking News)
-def fetch_news_summary(ticker):
+# ✅ AI-Based News Summarization
+def fetch_financial_news_summary(ticker):
     API_KEY = "YOUR_NEWSAPI_KEY"
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
             articles = response.json().get("articles", [])[:5]
-            if not articles:
-                return "No relevant financial news found."
-            
-            # Generate an AI-based summary
-            summary = f"Recent financial news for {ticker}: "
-            for article in articles:
-                summary += f"{article['title']}. {article['description']} "
-
-            return summary.strip()
+            summary = " ".join([f"{article['title']}: {article['description']}" for article in articles])
+            return summary if summary else "No financial news available."
     except Exception as e:
-        print("Error in fetch_news_summary:", e)
+        print("Error in fetch_financial_news_summary:", e)
     return "No financial news available."
 
 # ✅ Fetch Congress Trading Data
@@ -93,7 +86,7 @@ def fetch_congress_trading(ticker):
         print("Error in fetch_congress_trading:", e)
     return []
 
-# ✅ API Route: Ensures Response is Always Valid
+# ✅ API Route
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     try:
@@ -106,7 +99,7 @@ def analyze():
             return jsonify({"error": f"No data for {ticker}."}), 404
 
         predicted_prices = predict_prices(hist)
-        news_summary = fetch_news_summary(ticker)
+        news_summary = fetch_financial_news_summary(ticker)
         congress_trades = fetch_congress_trading(ticker)
 
         return jsonify({
