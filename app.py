@@ -4,28 +4,13 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
-from transformers import pipeline
-from prophet import Prophet
-from datetime import datetime, timedelta
+from sklearn.linear_model import LinearRegression
 
 app = Flask(__name__)
+CORS(app)
 
-# ✅ Fix CORS: Allow frontend to access API
-CORS(app, resources={r"/api/*": {"origins": "*"}})
-
-@app.after_request
-def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    return response
-
-# ✅ API URLs
-COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
-GPT_SUMMARY_MODEL = pipeline("summarization")
-
-# ✅ Fetch Stock Data
-def fetch_stock_data(ticker):
+# ✅ Fetch Historical Stock Data
+def fetch_real_time_data(ticker):
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
@@ -36,112 +21,89 @@ def fetch_stock_data(ticker):
         hist = hist.reset_index()
         hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
         hist = hist.astype({"Open": float, "High": float, "Low": float, "Close": float, "Volume": int})
+
         return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
     except Exception as e:
-        print(f"⚠️ Error fetching stock data for {ticker}: {e}")
+        print(f"Error fetching data for {ticker}: {e}")
         return None
 
-# ✅ Fetch Crypto Data (Supports All Cryptos)
-def fetch_crypto_data(ticker):
-    try:
-        coin_list_url = f"{COINGECKO_API_URL}/coins/list"
-        response = requests.get(coin_list_url)
-        coin_list = response.json()
-        crypto_id = next((coin["id"] for coin in coin_list if coin["symbol"].upper() == ticker.upper()), None)
-
-        if not crypto_id:
-            return None  # ❌ Not found
-
-        url = f"{COINGECKO_API_URL}/coins/{crypto_id}/market_chart?vs_currency=usd&days=180"
-        response = requests.get(url)
-
-        if response.status_code == 200:
-            data = response.json()
-            prices = data["prices"]
-            hist = pd.DataFrame(prices, columns=["timestamp", "price"])
-            hist["Date"] = pd.to_datetime(hist["timestamp"], unit='ms').dt.strftime("%Y-%m-%d")
-            hist["Open"] = hist["price"]
-            hist["High"] = hist["price"]
-            hist["Low"] = hist["price"]
-            hist["Close"] = hist["price"]
-            hist["Volume"] = 0  
-            return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
-    except Exception as e:
-        print(f"⚠️ Error fetching crypto data for {ticker}: {e}")
-    return None
-
-# ✅ Determine if ticker is a stock or crypto
-def get_market_data(ticker):
-    crypto_data = fetch_crypto_data(ticker)
-    return crypto_data if crypto_data is not None else fetch_stock_data(ticker)
-
-# ✅ AI-Based Price Prediction (Using Prophet)
+# ✅ AI-Based Price Prediction
 def predict_prices(df):
     if df is None or df.empty:
-        return {"next_day": None, "next_7_days": None, "next_30_days": None}
+        return {"next_day": None, "next_week": None, "next_month": None}
 
-    df["ds"] = pd.to_datetime(df["Date"])
-    df["y"] = df["Close"]
-    
-    model = Prophet()
-    model.fit(df[["ds", "y"]])
+    df["Day"] = np.arange(len(df))
+    X = df[["Day"]]
+    y = df["Close"]
+    model = LinearRegression()
+    model.fit(X, y)
 
-    future = model.make_future_dataframe(periods=30)
-    forecast = model.predict(future)
-
-    return {
-        "next_day": {
-            "date": (datetime.today() + timedelta(days=1)).strftime("%Y-%m-%d"),
-            "price": round(forecast.iloc[-30]["yhat"], 2)
-        },
-        "next_7_days": {
-            "date": (datetime.today() + timedelta(days=7)).strftime("%Y-%m-%d"),
-            "price": round(forecast.iloc[-23]["yhat"], 2)
-        },
-        "next_30_days": {
-            "date": (datetime.today() + timedelta(days=30)).strftime("%Y-%m-%d"),
-            "price": round(forecast.iloc[-1]["yhat"], 2)
-        }
+    future_days = {
+        "next_day": np.array([[len(df) + 1]]),
+        "next_week": np.array([[len(df) + 5]]),
+        "next_month": np.array([[len(df) + 20]])
     }
 
-# ✅ AI Investment Decision Engine
+    predicted_prices = {}
+    for key, value in future_days.items():
+        try:
+            predicted_prices[key] = round(model.predict(value)[0], 2)
+        except:
+            predicted_prices[key] = None  # Handle cases where model fails
+
+    return predicted_prices
+
+# ✅ AI Investment Strategy Model
 def generate_investment_advice(predicted_prices, current_price):
     if None in predicted_prices.values():
         return {"trend": "Unknown", "advice": "HOLD", "confidence": "0%"}
 
-    trend = "Bullish" if predicted_prices["next_day"]["price"] > current_price else "Bearish"
+    trend = "Bullish" if predicted_prices["next_day"] > current_price else "Bearish"
     advice = "HOLD"
-    if trend == "Bullish" and predicted_prices["next_day"]["price"] > current_price * 1.02:
+
+    if trend == "Bullish" and predicted_prices["next_day"] > current_price * 1.02:
         advice = "BUY"
-    elif trend == "Bearish" and predicted_prices["next_day"]["price"] < current_price * 0.98:
+    elif trend == "Bearish" and predicted_prices["next_day"] < current_price * 0.98:
         advice = "SELL"
 
-    confidence = f"{round(abs((predicted_prices['next_day']['price'] - current_price) / current_price) * 100, 1)}%"
+    confidence = f"{round(abs((predicted_prices['next_day'] - current_price) / current_price) * 100, 1)}%"
     
     return {"trend": trend, "advice": advice, "confidence": confidence}
 
-# ✅ AI-Generated Investment Summary (GPT Model)
-def generate_summary(ticker):
-    input_text = f"Summarize financial trends, news, and market factors affecting {ticker}."
-    summary = GPT_SUMMARY_MODEL(input_text, max_length=150, min_length=50, do_sample=False)
-    return summary[0]["summary_text"]
+# ✅ Fetch Market News from NewsAPI
+def fetch_financial_news(ticker):
+    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"  # Replace with actual key
+    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={NEWS_API_KEY}"
+    
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            news_data = response.json().get("articles", [])[:5]  # Get top 5 news articles
+            summarized_news = [
+                {"title": article["title"], "summary": article["description"]} for article in news_data
+            ]
+            return summarized_news
+    except Exception as e:
+        print(f"Error fetching news: {e}")
+    
+    return []
 
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
     
     if not ticker or len(ticker) < 2:
-        return jsonify({"error": "Enter a valid stock or crypto ticker (min 2 characters)."}), 400
+        return jsonify({"error": "Please enter a valid stock or crypto ticker (min 2 characters)."}), 400
 
     try:
-        hist = get_market_data(ticker)
+        hist = fetch_real_time_data(ticker)
         if hist is None or hist.empty:
-            return jsonify({"error": f"No data found for {ticker}. Try a different ticker."}), 404
+            return jsonify({"error": f"No real-time data found for {ticker}. Try a different ticker."}), 404
 
         current_price = hist["Close"].iloc[-1]
         predicted_prices = predict_prices(hist)
         investment_advice = generate_investment_advice(predicted_prices, current_price)
-        ai_summary = generate_summary(ticker)
+        financial_news = fetch_financial_news(ticker)
 
         return jsonify({
             "ticker": ticker,
@@ -156,15 +118,13 @@ def analyze():
                 "best_buy_date": hist.loc[hist["Close"].idxmin(), "Date"],
                 "best_sell_date": hist.loc[hist["Close"].idxmax(), "Date"],
                 "probability_of_success": "85%",
-                "investment_summary": ai_summary
+                "financial_news": financial_news
             }
         })
-    except Exception as e:
-        return jsonify({"error": f"Market data fetch failed: {str(e)}"}), 500
 
-@app.route("/api/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "API is running", "cors": "Enabled"}), 200
+    except Exception as e:
+        print(f"Backend error: {e}")
+        return jsonify({"error": f"Failed to fetch market data. Error: {str(e)}"}), 500
 
 if __name__ == "__main__":
     import os
