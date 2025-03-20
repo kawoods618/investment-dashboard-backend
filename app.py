@@ -8,8 +8,8 @@ import numpy as np
 
 app = Flask(__name__)
 
-# ✅ CORS FIX
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# ✅ CORS FIX: Explicitly allow frontend domain
+CORS(app, resources={r"/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}})
 
 # ✅ Fetch Real-Time Stock Data
 def fetch_real_time_data(ticker):
@@ -25,7 +25,7 @@ def fetch_real_time_data(ticker):
         print("Error in fetch_real_time_data:", e)
         return None
 
-# ✅ AI Prediction Model (Replaces Prophet)
+# ✅ AI Prediction Model
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
