@@ -8,19 +8,17 @@ import traceback
 
 app = Flask(__name__)
 
-# Allow all origins for every route (this adds the Access-Control-Allow-Origin header)
-CORS(app)
+# ✅ Allow requests from your frontend (Explicit CORS Fix)
+CORS(app, resources={r"/api/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}}, supports_credentials=True)
 
-# Global error handler: catches all exceptions and returns a JSON error with CORS headers
 @app.errorhandler(Exception)
 def handle_exception(e):
-    # Log the full traceback (for debugging purposes)
-    print(traceback.format_exc())
+    print("ERROR:", traceback.format_exc())  # Log errors for debugging
     response = jsonify({"error": str(e)})
     response.status_code = 500
     return response
 
-# Fetch historical stock data using yfinance
+# ✅ Fetch Historical Stock Data
 def fetch_real_time_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -34,7 +32,7 @@ def fetch_real_time_data(ticker):
         print("Error in fetch_real_time_data:", e)
         return None
 
-# Use Prophet to forecast future prices
+# ✅ AI Price Prediction using Prophet
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": None, "next_week": None, "next_month": None}
@@ -53,23 +51,22 @@ def predict_prices(df):
         print("Error in predict_prices:", e)
         return {"next_day": None, "next_week": None, "next_month": None}
 
-# Fetch news using NewsAPI
+# ✅ Fetch Financial News
 def fetch_financial_news(ticker):
-    API_KEY = "YOUR_NEWSAPI_KEY"  # Replace with your key
+    API_KEY = "YOUR_NEWSAPI_KEY"
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            articles = response.json().get("articles", [])[:5]
-            return [{"title": article["title"], "summary": article["description"]} for article in articles]
+            return [{"title": article["title"], "summary": article["description"]} for article in response.json().get("articles", [])[:5]]
     except Exception as e:
         print("Error in fetch_financial_news:", e)
     return []
 
-# Fetch Congress trading data using QuiverQuant API
+# ✅ Fetch Congress Trading Data
 def fetch_congress_trading(ticker):
     API_URL = "https://api.quiverquant.com/beta/live/housetrading"
-    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}  # Replace with your key
+    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}
     try:
         response = requests.get(API_URL, headers=headers)
         if response.status_code == 200:
@@ -78,7 +75,7 @@ def fetch_congress_trading(ticker):
         print("Error in fetch_congress_trading:", e)
     return []
 
-# API endpoint to analyze a given ticker
+# ✅ API Route
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     try:
