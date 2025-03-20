@@ -8,12 +8,12 @@ import traceback
 
 app = Flask(__name__)
 
-# ✅ Allow CORS requests from the frontend
+# ✅ Allow frontend requests (CORS Fix)
 CORS(app, resources={r"/api/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}}, supports_credentials=True)
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    print("ERROR:", traceback.format_exc())  
+    print("ERROR:", traceback.format_exc())  # Debugging
     response = jsonify({"error": str(e)})
     response.status_code = 500
     return response
@@ -22,7 +22,7 @@ def handle_exception(e):
 def fetch_real_time_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y", interval="1d", auto_adjust=True)
+        hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
         if hist.empty:
             return None
         hist = hist.reset_index()
@@ -32,10 +32,10 @@ def fetch_real_time_data(ticker):
         print("Error in fetch_real_time_data:", e)
         return None
 
-# ✅ AI Prediction using Prophet (Enhanced)
+# ✅ AI Price Prediction using Prophet
 def predict_prices(df):
     if df is None or df.empty:
-        return {"next_day": None, "next_week": None, "next_month": None}
+        return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
     try:
         df = df.rename(columns={"Date": "ds", "Close": "y"})
         model = Prophet()
@@ -49,17 +49,16 @@ def predict_prices(df):
         }
     except Exception as e:
         print("Error in predict_prices:", e)
-        return {"next_day": None, "next_week": None, "next_month": None}
+        return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
 
-# ✅ Fetch Financial News (Summarized)
+# ✅ Fetch Financial News
 def fetch_financial_news(ticker):
     API_KEY = "YOUR_NEWSAPI_KEY"
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            articles = response.json().get("articles", [])[:5]
-            return [{"title": article["title"], "summary": article["description"]} for article in articles]
+            return [{"title": article["title"], "summary": article["description"]} for article in response.json().get("articles", [])[:5]]
     except Exception as e:
         print("Error in fetch_financial_news:", e)
     return []
