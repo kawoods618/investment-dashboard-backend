@@ -3,90 +3,107 @@ from flask_cors import CORS
 import yfinance as yf
 import requests
 import pandas as pd
-from transformers import pipeline
 from prophet import Prophet
+import traceback
 
 app = Flask(__name__)
 
-# ✅ Fix CORS: Allow Frontend Access
-CORS(app, resources={r"/api/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}}, supports_credentials=True)
+# Allow all origins for every route (this adds the Access-Control-Allow-Origin header)
+CORS(app)
 
-# ✅ Fetch Stock Data
+# Global error handler: catches all exceptions and returns a JSON error with CORS headers
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Log the full traceback (for debugging purposes)
+    print(traceback.format_exc())
+    response = jsonify({"error": str(e)})
+    response.status_code = 500
+    return response
+
+# Fetch historical stock data using yfinance
 def fetch_real_time_data(ticker):
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
-
-    if hist.empty:
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
+        if hist.empty:
+            return None
+        hist = hist.reset_index()
+        hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
+        return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
+    except Exception as e:
+        print("Error in fetch_real_time_data:", e)
         return None
 
-    hist = hist.reset_index()
-    hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
-    return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
-
-# ✅ AI Price Prediction using Prophet
+# Use Prophet to forecast future prices
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": None, "next_week": None, "next_month": None}
+    try:
+        df = df.rename(columns={"Date": "ds", "Close": "y"})
+        model = Prophet()
+        model.fit(df)
+        future = model.make_future_dataframe(periods=30)
+        forecast = model.predict(future)
+        return {
+            "next_day": round(forecast.iloc[-30]["yhat"], 2),
+            "next_week": round(forecast.iloc[-7]["yhat"], 2),
+            "next_month": round(forecast.iloc[-1]["yhat"], 2),
+        }
+    except Exception as e:
+        print("Error in predict_prices:", e)
+        return {"next_day": None, "next_week": None, "next_month": None}
 
-    df = df.rename(columns={"Date": "ds", "Close": "y"})
-    model = Prophet()
-    model.fit(df)
-
-    future = model.make_future_dataframe(periods=30)
-    forecast = model.predict(future)
-
-    return {
-        "next_day": round(forecast.iloc[-30]["yhat"], 2),
-        "next_week": round(forecast.iloc[-7]["yhat"], 2),
-        "next_month": round(forecast.iloc[-1]["yhat"], 2),
-    }
-
-# ✅ Fetch Financial News
+# Fetch news using NewsAPI
 def fetch_financial_news(ticker):
-    API_KEY = "YOUR_NEWSAPI_KEY"
+    API_KEY = "YOUR_NEWSAPI_KEY"  # Replace with your key
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
-
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            return [{"title": article["title"], "summary": article["description"]} for article in response.json().get("articles", [])[:5]]
-    except:
-        return []
+            articles = response.json().get("articles", [])[:5]
+            return [{"title": article["title"], "summary": article["description"]} for article in articles]
+    except Exception as e:
+        print("Error in fetch_financial_news:", e)
+    return []
 
-# ✅ Fetch Congress Trading Data
+# Fetch Congress trading data using QuiverQuant API
 def fetch_congress_trading(ticker):
     API_URL = "https://api.quiverquant.com/beta/live/housetrading"
-    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}
-
+    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}  # Replace with your key
     try:
         response = requests.get(API_URL, headers=headers)
         if response.status_code == 200:
-            return [trade for trade in response.json() if trade["Ticker"] == ticker]
-    except:
-        return []
+            return [trade for trade in response.json() if trade.get("Ticker") == ticker]
+    except Exception as e:
+        print("Error in fetch_congress_trading:", e)
+    return []
 
-# ✅ API Route
+# API endpoint to analyze a given ticker
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
-    ticker = request.args.get("ticker", "").upper()
-    if not ticker or len(ticker) < 2:
-        return jsonify({"error": "Enter a valid stock or crypto ticker."}), 400
+    try:
+        ticker = request.args.get("ticker", "").upper()
+        if not ticker or len(ticker) < 2:
+            return jsonify({"error": "Enter a valid stock or crypto ticker."}), 400
 
-    hist = fetch_real_time_data(ticker)
-    if hist is None:
-        return jsonify({"error": f"No data for {ticker}."}), 404
+        hist = fetch_real_time_data(ticker)
+        if hist is None:
+            return jsonify({"error": f"No data for {ticker}."}), 404
 
-    predicted_prices = predict_prices(hist)
-    news = fetch_financial_news(ticker)
-    congress_trades = fetch_congress_trading(ticker)
+        predicted_prices = predict_prices(hist)
+        news = fetch_financial_news(ticker)
+        congress_trades = fetch_congress_trading(ticker)
 
-    return jsonify({
-        "ticker": ticker,
-        "market_data": hist.to_dict(orient="records"),
-        "predictions": predicted_prices,
-        "news": news,
-        "congress_trades": congress_trades
-    })
+        return jsonify({
+            "ticker": ticker,
+            "market_data": hist.to_dict(orient="records"),
+            "predictions": predicted_prices,
+            "news": news,
+            "congress_trades": congress_trades
+        })
+    except Exception as e:
+        print("Error in /api/analyze:", e)
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True)
