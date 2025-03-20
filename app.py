@@ -7,7 +7,9 @@ from transformers import pipeline
 from prophet import Prophet
 
 app = Flask(__name__)
-CORS(app)
+
+# ✅ Fix CORS: Allow Frontend Access
+CORS(app, resources={r"/api/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}}, supports_credentials=True)
 
 # ✅ Fetch Stock Data
 def fetch_real_time_data(ticker):
