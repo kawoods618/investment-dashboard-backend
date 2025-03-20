@@ -1,9 +1,10 @@
 flask
 flask-cors
-yfinance
-pandas
+flask-socketio
 numpy
+pandas
+yfinance
 requests
-transformers
-prophet
 torch
+prophet
+transformers
