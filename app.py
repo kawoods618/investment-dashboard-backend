@@ -8,8 +8,8 @@ import numpy as np
 
 app = Flask(__name__)
 
-# ✅ CORS FIX: Explicitly allow frontend domain
-CORS(app, resources={r"/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}})
+# ✅ FIXED CORS ISSUE: Allow all requests from frontend
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # ✅ Fetch Real-Time Stock Data
 def fetch_real_time_data(ticker):
