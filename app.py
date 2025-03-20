@@ -5,15 +5,19 @@ import requests
 import pandas as pd
 from prophet import Prophet
 import traceback
-import openai  # GPT for news summarization
 
 app = Flask(__name__)
 
-# ✅ Allow frontend requests (CORS Fix)
-CORS(app, resources={r"/api/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}}, supports_credentials=True)
+# ✅ Corrected CORS Policy: Allow All Requests from Frontend
+CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
 
-# OpenAI API Key (Replace with your key)
-OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
+@app.after_request
+def add_cors_headers(response):
+    """Ensure CORS headers are added to every response."""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -55,38 +59,26 @@ def predict_prices(df):
         print("Error in predict_prices:", e)
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
 
-# ✅ Fetch and Summarize Financial News
-def fetch_and_summarize_news(ticker):
+# ✅ AI-Based Market News Summary (Instead of Linking)
+def fetch_news_summary(ticker):
     API_KEY = "YOUR_NEWSAPI_KEY"
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
             articles = response.json().get("articles", [])[:5]
-            raw_text = " ".join([f"Title: {a['title']} Summary: {a['description']}" for a in articles])
+            if not articles:
+                return "No relevant financial news found."
+            
+            # Generate a basic summary
+            summary = f"Recent financial news for {ticker}: "
+            for article in articles:
+                summary += f"{article['title']}. {article['description']} "
 
-            # Use OpenAI GPT to summarize
-            summary = summarize_news_with_gpt(raw_text, ticker)
-            return summary
+            return summary.strip()
     except Exception as e:
-        print("Error in fetch_financial_news:", e)
-    return "No relevant news found."
-
-# ✅ Use OpenAI GPT to Summarize and Justify Investment Decisions
-def summarize_news_with_gpt(news_text, ticker):
-    try:
-        openai.api_key = OPENAI_API_KEY
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": f"Analyze news for {ticker} and summarize its impact on stock price predictions."},
-                {"role": "user", "content": news_text}
-            ]
-        )
-        return response["choices"][0]["message"]["content"]
-    except Exception as e:
-        print("Error in summarize_news_with_gpt:", e)
-        return "Market sentiment analysis unavailable."
+        print("Error in fetch_news_summary:", e)
+    return "No financial news available."
 
 # ✅ Fetch Congress Trading Data
 def fetch_congress_trading(ticker):
@@ -113,7 +105,7 @@ def analyze():
             return jsonify({"error": f"No data for {ticker}."}), 404
 
         predicted_prices = predict_prices(hist)
-        news_summary = fetch_and_summarize_news(ticker)
+        news_summary = fetch_news_summary(ticker)
         congress_trades = fetch_congress_trading(ticker)
 
         return jsonify({
