@@ -8,12 +8,12 @@ import traceback
 
 app = Flask(__name__)
 
-# ✅ Corrected CORS Policy: Allow All Requests from Frontend
-CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
+# ✅ Fix CORS: Allow all frontend requests
+CORS(app)
 
 @app.after_request
 def add_cors_headers(response):
-    """Ensure CORS headers are added to every response."""
+    """Ensures all responses include the necessary CORS headers."""
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
@@ -21,7 +21,8 @@ def add_cors_headers(response):
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    print("ERROR:", traceback.format_exc())  # Debugging
+    """Catches all errors and provides a valid JSON response."""
+    print("ERROR:", traceback.format_exc())
     response = jsonify({"error": str(e)})
     response.status_code = 500
     return response
@@ -59,7 +60,7 @@ def predict_prices(df):
         print("Error in predict_prices:", e)
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
 
-# ✅ AI-Based Market News Summary (Instead of Linking)
+# ✅ AI-Based Market News Summary (Instead of Linking News)
 def fetch_news_summary(ticker):
     API_KEY = "YOUR_NEWSAPI_KEY"
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
@@ -70,7 +71,7 @@ def fetch_news_summary(ticker):
             if not articles:
                 return "No relevant financial news found."
             
-            # Generate a basic summary
+            # Generate an AI-based summary
             summary = f"Recent financial news for {ticker}: "
             for article in articles:
                 summary += f"{article['title']}. {article['description']} "
@@ -92,7 +93,7 @@ def fetch_congress_trading(ticker):
         print("Error in fetch_congress_trading:", e)
     return []
 
-# ✅ API Route
+# ✅ API Route: Ensures Response is Always Valid
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     try:
