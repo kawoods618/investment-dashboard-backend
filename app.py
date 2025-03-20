@@ -3,14 +3,22 @@ from flask_cors import CORS
 import yfinance as yf
 import requests
 import pandas as pd
-from prophet import Prophet  # ✅ Using Prophet instead of scikit-learn
+from prophet import Prophet
+import traceback
 
 app = Flask(__name__)
 
-# ✅ Allow requests from frontend
+# ✅ Allow frontend requests (Fixes CORS issue)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# ✅ Fetch Real-Time Stock Data
+@app.errorhandler(Exception)
+def handle_exception(e):
+    print("ERROR:", traceback.format_exc())  # Debugging
+    response = jsonify({"error": str(e)})
+    response.status_code = 500
+    return response
+
+# ✅ Fetch Historical Stock Data
 def fetch_real_time_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -24,47 +32,50 @@ def fetch_real_time_data(ticker):
         print("Error in fetch_real_time_data:", e)
         return None
 
-# ✅ AI Prediction Model using Prophet
+# ✅ AI Price Prediction using Prophet
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
-
     try:
         df = df.rename(columns={"Date": "ds", "Close": "y"})
         model = Prophet()
         model.fit(df)
         future = model.make_future_dataframe(periods=30)
         forecast = model.predict(future)
-
         return {
             "next_day": round(forecast.iloc[-30]["yhat"], 2),
             "next_week": round(forecast.iloc[-7]["yhat"], 2),
             "next_month": round(forecast.iloc[-1]["yhat"], 2),
         }
-
     except Exception as e:
         print("Error in predict_prices:", e)
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
 
-# ✅ Fetch and Summarize Financial News
+# ✅ Fetch Financial News and Generate a Summary (No Links)
 def fetch_financial_news(ticker):
     API_KEY = "YOUR_NEWSAPI_KEY"
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            articles = response.json().get("articles", [])
-            if not articles:
-                return "No significant news found."
-
-            # Summarizing top 5 news articles
-            summary = "\n".join([f"- {article['title']}: {article['description']}" for article in articles[:5]])
-            return summary
-
+            articles = response.json().get("articles", [])[:5]
+            summary = " ".join([article["description"] for article in articles if article["description"]])
+            return summary if summary else "No financial news available."
     except Exception as e:
         print("Error in fetch_financial_news:", e)
-
     return "No financial news available."
+
+# ✅ Fetch Congress Trading Data
+def fetch_congress_trading(ticker):
+    API_URL = "https://api.quiverquant.com/beta/live/housetrading"
+    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}
+    try:
+        response = requests.get(API_URL, headers=headers)
+        if response.status_code == 200:
+            return [trade for trade in response.json() if trade.get("Ticker") == ticker]
+    except Exception as e:
+        print("Error in fetch_congress_trading:", e)
+    return []
 
 # ✅ API Route
 @app.route("/api/analyze", methods=["GET"])
@@ -80,12 +91,14 @@ def analyze():
 
         predicted_prices = predict_prices(hist)
         news_summary = fetch_financial_news(ticker)
+        congress_trades = fetch_congress_trading(ticker)
 
         return jsonify({
             "ticker": ticker,
             "market_data": hist.to_dict(orient="records"),
             "predictions": predicted_prices,
-            "news_summary": news_summary
+            "news_summary": news_summary,
+            "congress_trades": congress_trades
         })
     except Exception as e:
         print("Error in /api/analyze:", e)
