@@ -1,26 +1,19 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_socketio import SocketIO
 import yfinance as yf
-import pandas as pd
-import numpy as np
 import requests
-from datetime import datetime, timedelta
+import pandas as pd
 from transformers import pipeline
 from prophet import Prophet
-import torch
-from torch import nn
-import json
 
 app = Flask(__name__)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
 
 # ✅ Fetch Stock Data
 def fetch_real_time_data(ticker):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
-    
+
     if hist.empty:
         return None
 
@@ -28,25 +21,14 @@ def fetch_real_time_data(ticker):
     hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
     return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
-# ✅ LSTM Model for Price Prediction
-class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size):
-        super(LSTMModel, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_size)
-
-    def forward(self, x):
-        lstm_out, _ = self.lstm(x)
-        return self.fc(lstm_out[:, -1, :])
-
+# ✅ AI Price Prediction using Prophet
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": None, "next_week": None, "next_month": None}
 
-    # Use Prophet
-    prophet_df = df.rename(columns={"Date": "ds", "Close": "y"})
+    df = df.rename(columns={"Date": "ds", "Close": "y"})
     model = Prophet()
-    model.fit(prophet_df)
+    model.fit(df)
 
     future = model.make_future_dataframe(periods=30)
     forecast = model.predict(future)
@@ -56,17 +38,6 @@ def predict_prices(df):
         "next_week": round(forecast.iloc[-7]["yhat"], 2),
         "next_month": round(forecast.iloc[-1]["yhat"], 2),
     }
-
-# ✅ Fetch Congress & Insider Trading Data
-def fetch_congress_trading(ticker):
-    API_URL = f"https://api.quiverquant.com/beta/live/housetrading"
-    headers = {"Authorization": "Bearer YOUR_QUIVER_API_KEY"}
-    response = requests.get(API_URL, headers=headers)
-
-    if response.status_code == 200:
-        trades = response.json()
-        return [trade for trade in trades if trade["Ticker"] == ticker]
-    return []
 
 # ✅ Fetch Financial News
 def fetch_financial_news(ticker):
@@ -80,13 +51,19 @@ def fetch_financial_news(ticker):
     except:
         return []
 
-# ✅ Real-Time Sentiment Analysis
-sentiment_pipeline = pipeline("sentiment-analysis")
-def analyze_sentiment(news):
-    sentiments = [sentiment_pipeline(article["summary"])[0] for article in news]
-    return [{"title": article["title"], "sentiment": sent["label"]} for article, sent in zip(news, sentiments)]
+# ✅ Fetch Congress Trading Data
+def fetch_congress_trading(ticker):
+    API_URL = "https://api.quiverquant.com/beta/live/housetrading"
+    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}
 
-# ✅ Flask API Route
+    try:
+        response = requests.get(API_URL, headers=headers)
+        if response.status_code == 200:
+            return [trade for trade in response.json() if trade["Ticker"] == ticker]
+    except:
+        return []
+
+# ✅ API Route
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
@@ -99,16 +76,15 @@ def analyze():
 
     predicted_prices = predict_prices(hist)
     news = fetch_financial_news(ticker)
-    analyzed_news = analyze_sentiment(news)
     congress_trades = fetch_congress_trading(ticker)
 
     return jsonify({
         "ticker": ticker,
         "market_data": hist.to_dict(orient="records"),
         "predictions": predicted_prices,
-        "news_sentiment": analyzed_news,
+        "news": news,
         "congress_trades": congress_trades
     })
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=8080, debug=True)
