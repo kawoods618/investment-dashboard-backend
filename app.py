@@ -3,12 +3,11 @@ from flask_cors import CORS
 import yfinance as yf
 import requests
 import pandas as pd
-from sklearn.linear_model import Ridge
-import numpy as np
+from prophet import Prophet  # ✅ Using Prophet instead of scikit-learn
 
 app = Flask(__name__)
 
-# ✅ FIXED CORS ISSUE: Allow all requests from frontend
+# ✅ Allow requests from frontend
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # ✅ Fetch Real-Time Stock Data
@@ -25,26 +24,22 @@ def fetch_real_time_data(ticker):
         print("Error in fetch_real_time_data:", e)
         return None
 
-# ✅ AI Prediction Model
+# ✅ AI Prediction Model using Prophet
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
 
     try:
         df = df.rename(columns={"Date": "ds", "Close": "y"})
-        X = np.arange(len(df)).reshape(-1, 1)
-        y = df["y"].values
-
-        model = Ridge(alpha=1.0)
-        model.fit(X, y)
-
-        future_days = [len(df) + i for i in [1, 7, 30]]
-        predictions = model.predict(np.array(future_days).reshape(-1, 1))
+        model = Prophet()
+        model.fit(df)
+        future = model.make_future_dataframe(periods=30)
+        forecast = model.predict(future)
 
         return {
-            "next_day": round(predictions[0], 2),
-            "next_week": round(predictions[1], 2),
-            "next_month": round(predictions[2], 2),
+            "next_day": round(forecast.iloc[-30]["yhat"], 2),
+            "next_week": round(forecast.iloc[-7]["yhat"], 2),
+            "next_month": round(forecast.iloc[-1]["yhat"], 2),
         }
 
     except Exception as e:
