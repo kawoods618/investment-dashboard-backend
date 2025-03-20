@@ -5,11 +5,15 @@ import requests
 import pandas as pd
 from prophet import Prophet
 import traceback
+import openai  # GPT for news summarization
 
 app = Flask(__name__)
 
 # ✅ Allow frontend requests (CORS Fix)
 CORS(app, resources={r"/api/*": {"origins": "https://investment-dashboard-frontend-production.up.railway.app"}}, supports_credentials=True)
+
+# OpenAI API Key (Replace with your key)
+OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -38,64 +42,63 @@ def predict_prices(df):
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
     try:
         df = df.rename(columns={"Date": "ds", "Close": "y"})
-        
-        # ✅ Fix: Ensure correct frequency
-        df["ds"] = pd.to_datetime(df["ds"])  # Convert to datetime format
         model = Prophet()
         model.fit(df)
-        
-        future = model.make_future_dataframe(periods=30, freq='D')
+        future = model.make_future_dataframe(periods=30)
         forecast = model.predict(future)
-        
         return {
-            "next_day": f"${round(forecast.iloc[-30]['yhat'], 2)}",
-            "next_week": f"${round(forecast.iloc[-7]['yhat'], 2)}",
-            "next_month": f"${round(forecast.iloc[-1]['yhat'], 2)}"
+            "next_day": round(forecast.iloc[-30]["yhat"], 2),
+            "next_week": round(forecast.iloc[-7]["yhat"], 2),
+            "next_month": round(forecast.iloc[-1]["yhat"], 2),
         }
     except Exception as e:
         print("Error in predict_prices:", e)
-        return {"next_day": "Error", "next_week": "Error", "next_month": "Error"}
+        return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
 
-# ✅ Fetch Financial News
-def fetch_financial_news(ticker):
-    API_KEY = "YOUR_NEWSAPI_KEY"  # 🔥 Replace this with an actual key!
+# ✅ Fetch and Summarize Financial News
+def fetch_and_summarize_news(ticker):
+    API_KEY = "YOUR_NEWSAPI_KEY"
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
-    
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            articles = response.json().get("articles", [])
-            return [
-                {"title": article["title"], "summary": article["description"]}
-                for article in articles[:5]
-            ]
-        else:
-            print("News API Error:", response.text)  # 🔥 Debugging output
-            return [{"title": "No news available.", "summary": "No recent updates."}]
-    
+            articles = response.json().get("articles", [])[:5]
+            raw_text = " ".join([f"Title: {a['title']} Summary: {a['description']}" for a in articles])
+
+            # Use OpenAI GPT to summarize
+            summary = summarize_news_with_gpt(raw_text, ticker)
+            return summary
     except Exception as e:
         print("Error in fetch_financial_news:", e)
-        return [{"title": "Error fetching news.", "summary": str(e)}]
+    return "No relevant news found."
+
+# ✅ Use OpenAI GPT to Summarize and Justify Investment Decisions
+def summarize_news_with_gpt(news_text, ticker):
+    try:
+        openai.api_key = OPENAI_API_KEY
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": f"Analyze news for {ticker} and summarize its impact on stock price predictions."},
+                {"role": "user", "content": news_text}
+            ]
+        )
+        return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        print("Error in summarize_news_with_gpt:", e)
+        return "Market sentiment analysis unavailable."
 
 # ✅ Fetch Congress Trading Data
 def fetch_congress_trading(ticker):
     API_URL = "https://api.quiverquant.com/beta/live/housetrading"
-    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}  # 🔥 Replace with valid API Key
-    
+    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}
     try:
         response = requests.get(API_URL, headers=headers)
         if response.status_code == 200:
-            trades = [trade for trade in response.json() if trade.get("Ticker") == ticker]
-            if not trades:
-                return [{"message": "No congress trades found for this ticker."}]
-            return trades
-        else:
-            print("Congress Trading API Error:", response.text)  # 🔥 Debugging output
-            return [{"message": "Error retrieving congress trades."}]
-    
+            return [trade for trade in response.json() if trade.get("Ticker") == ticker]
     except Exception as e:
         print("Error in fetch_congress_trading:", e)
-        return [{"message": "Congress trading data not available."}]
+    return []
 
 # ✅ API Route
 @app.route("/api/analyze", methods=["GET"])
@@ -110,14 +113,14 @@ def analyze():
             return jsonify({"error": f"No data for {ticker}."}), 404
 
         predicted_prices = predict_prices(hist)
-        news = fetch_financial_news(ticker)
+        news_summary = fetch_and_summarize_news(ticker)
         congress_trades = fetch_congress_trading(ticker)
 
         return jsonify({
             "ticker": ticker,
             "market_data": hist.to_dict(orient="records"),
             "predictions": predicted_prices,
-            "news": news,
+            "news_summary": news_summary,
             "congress_trades": congress_trades
         })
     except Exception as e:
