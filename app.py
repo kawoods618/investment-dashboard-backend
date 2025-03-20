@@ -8,8 +8,8 @@ import traceback
 
 app = Flask(__name__)
 
-# ✅ Allow frontend requests (Fixes CORS issue)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# ✅ Allow all frontend requests (Fixes CORS)
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -18,7 +18,7 @@ def handle_exception(e):
     response.status_code = 500
     return response
 
-# ✅ Fetch Historical Stock Data
+# ✅ Fetch Real-Time Stock Data
 def fetch_real_time_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -51,8 +51,8 @@ def predict_prices(df):
         print("Error in predict_prices:", e)
         return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
 
-# ✅ Fetch Financial News and Generate a Summary (No Links)
-def fetch_financial_news(ticker):
+# ✅ Summarize News for AI Insights
+def summarize_news(ticker):
     API_KEY = "YOUR_NEWSAPI_KEY"
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
     try:
@@ -62,20 +62,8 @@ def fetch_financial_news(ticker):
             summary = " ".join([article["description"] for article in articles if article["description"]])
             return summary if summary else "No financial news available."
     except Exception as e:
-        print("Error in fetch_financial_news:", e)
+        print("Error in summarize_news:", e)
     return "No financial news available."
-
-# ✅ Fetch Congress Trading Data
-def fetch_congress_trading(ticker):
-    API_URL = "https://api.quiverquant.com/beta/live/housetrading"
-    headers = {"Authorization": "Bearer YOUR_QUIVERQUANT_API_KEY"}
-    try:
-        response = requests.get(API_URL, headers=headers)
-        if response.status_code == 200:
-            return [trade for trade in response.json() if trade.get("Ticker") == ticker]
-    except Exception as e:
-        print("Error in fetch_congress_trading:", e)
-    return []
 
 # ✅ API Route
 @app.route("/api/analyze", methods=["GET"])
@@ -90,15 +78,13 @@ def analyze():
             return jsonify({"error": f"No data for {ticker}."}), 404
 
         predicted_prices = predict_prices(hist)
-        news_summary = fetch_financial_news(ticker)
-        congress_trades = fetch_congress_trading(ticker)
+        news_summary = summarize_news(ticker)
 
         return jsonify({
             "ticker": ticker,
             "market_data": hist.to_dict(orient="records"),
             "predictions": predicted_prices,
             "news_summary": news_summary,
-            "congress_trades": congress_trades
         })
     except Exception as e:
         print("Error in /api/analyze:", e)
