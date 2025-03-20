@@ -4,9 +4,13 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
-from sklearn.linear_model import LinearRegression
+from transformers import pipeline
+from prophet import Prophet
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
+
+# ✅ Fix CORS for Frontend Access
 CORS(app)
 
 # ✅ Fetch Historical Stock Data
