@@ -1,136 +1,114 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_socketio import SocketIO
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
+from datetime import datetime, timedelta
 from transformers import pipeline
 from prophet import Prophet
-from datetime import datetime, timedelta
+import torch
+from torch import nn
+import json
 
 app = Flask(__name__)
-
-# ✅ Fix CORS for Frontend Access
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# ✅ Fetch Historical Stock Data
+# ✅ Fetch Stock Data
 def fetch_real_time_data(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
-
-        if hist.empty:
-            return None
-
-        hist = hist.reset_index()
-        hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
-        hist = hist.astype({"Open": float, "High": float, "Low": float, "Close": float, "Volume": int})
-
-        return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
-    except Exception as e:
-        print(f"Error fetching data for {ticker}: {e}")
+    stock = yf.Ticker(ticker)
+    hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
+    
+    if hist.empty:
         return None
 
-# ✅ AI-Based Price Prediction
+    hist = hist.reset_index()
+    hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
+    return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
+
+# ✅ LSTM Model for Price Prediction
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
+        super(LSTMModel, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        return self.fc(lstm_out[:, -1, :])
+
 def predict_prices(df):
     if df is None or df.empty:
         return {"next_day": None, "next_week": None, "next_month": None}
 
-    df["Day"] = np.arange(len(df))
-    X = df[["Day"]]
-    y = df["Close"]
-    model = LinearRegression()
-    model.fit(X, y)
+    # Use Prophet
+    prophet_df = df.rename(columns={"Date": "ds", "Close": "y"})
+    model = Prophet()
+    model.fit(prophet_df)
 
-    future_days = {
-        "next_day": np.array([[len(df) + 1]]),
-        "next_week": np.array([[len(df) + 5]]),
-        "next_month": np.array([[len(df) + 20]])
+    future = model.make_future_dataframe(periods=30)
+    forecast = model.predict(future)
+
+    return {
+        "next_day": round(forecast.iloc[-30]["yhat"], 2),
+        "next_week": round(forecast.iloc[-7]["yhat"], 2),
+        "next_month": round(forecast.iloc[-1]["yhat"], 2),
     }
 
-    predicted_prices = {}
-    for key, value in future_days.items():
-        try:
-            predicted_prices[key] = round(model.predict(value)[0], 2)
-        except:
-            predicted_prices[key] = None  # Handle cases where model fails
+# ✅ Fetch Congress & Insider Trading Data
+def fetch_congress_trading(ticker):
+    API_URL = f"https://api.quiverquant.com/beta/live/housetrading"
+    headers = {"Authorization": "Bearer YOUR_QUIVER_API_KEY"}
+    response = requests.get(API_URL, headers=headers)
 
-    return predicted_prices
+    if response.status_code == 200:
+        trades = response.json()
+        return [trade for trade in trades if trade["Ticker"] == ticker]
+    return []
 
-# ✅ AI Investment Strategy Model
-def generate_investment_advice(predicted_prices, current_price):
-    if None in predicted_prices.values():
-        return {"trend": "Unknown", "advice": "HOLD", "confidence": "0%"}
-
-    trend = "Bullish" if predicted_prices["next_day"] > current_price else "Bearish"
-    advice = "HOLD"
-
-    if trend == "Bullish" and predicted_prices["next_day"] > current_price * 1.02:
-        advice = "BUY"
-    elif trend == "Bearish" and predicted_prices["next_day"] < current_price * 0.98:
-        advice = "SELL"
-
-    confidence = f"{round(abs((predicted_prices['next_day'] - current_price) / current_price) * 100, 1)}%"
-    
-    return {"trend": trend, "advice": advice, "confidence": confidence}
-
-# ✅ Fetch Market News from NewsAPI
+# ✅ Fetch Financial News
 def fetch_financial_news(ticker):
-    NEWS_API_KEY = "YOUR_NEWSAPI_KEY"  # Replace with actual key
-    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={NEWS_API_KEY}"
-    
+    API_KEY = "YOUR_NEWSAPI_KEY"
+    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
+
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            news_data = response.json().get("articles", [])[:5]  # Get top 5 news articles
-            summarized_news = [
-                {"title": article["title"], "summary": article["description"]} for article in news_data
-            ]
-            return summarized_news
-    except Exception as e:
-        print(f"Error fetching news: {e}")
-    
-    return []
+            return [{"title": article["title"], "summary": article["description"]} for article in response.json().get("articles", [])[:5]]
+    except:
+        return []
 
+# ✅ Real-Time Sentiment Analysis
+sentiment_pipeline = pipeline("sentiment-analysis")
+def analyze_sentiment(news):
+    sentiments = [sentiment_pipeline(article["summary"])[0] for article in news]
+    return [{"title": article["title"], "sentiment": sent["label"]} for article, sent in zip(news, sentiments)]
+
+# ✅ Flask API Route
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     ticker = request.args.get("ticker", "").upper()
-    
     if not ticker or len(ticker) < 2:
-        return jsonify({"error": "Please enter a valid stock or crypto ticker (min 2 characters)."}), 400
+        return jsonify({"error": "Enter a valid stock or crypto ticker."}), 400
 
-    try:
-        hist = fetch_real_time_data(ticker)
-        if hist is None or hist.empty:
-            return jsonify({"error": f"No real-time data found for {ticker}. Try a different ticker."}), 404
+    hist = fetch_real_time_data(ticker)
+    if hist is None:
+        return jsonify({"error": f"No data for {ticker}."}), 404
 
-        current_price = hist["Close"].iloc[-1]
-        predicted_prices = predict_prices(hist)
-        investment_advice = generate_investment_advice(predicted_prices, current_price)
-        financial_news = fetch_financial_news(ticker)
+    predicted_prices = predict_prices(hist)
+    news = fetch_financial_news(ticker)
+    analyzed_news = analyze_sentiment(news)
+    congress_trades = fetch_congress_trading(ticker)
 
-        return jsonify({
-            "ticker": ticker,
-            "market_data": hist.to_dict(orient="records"),
-            "prediction": {
-                "trend": investment_advice["trend"],
-                "advice": investment_advice["advice"],
-                "confidence": investment_advice["confidence"],
-                "predicted_prices": predicted_prices,
-                "best_buy_price": round(hist["Close"].min(), 2),
-                "best_sell_price": round(hist["Close"].max(), 2),
-                "best_buy_date": hist.loc[hist["Close"].idxmin(), "Date"],
-                "best_sell_date": hist.loc[hist["Close"].idxmax(), "Date"],
-                "probability_of_success": "85%",
-                "financial_news": financial_news
-            }
-        })
-
-    except Exception as e:
-        print(f"Backend error: {e}")
-        return jsonify({"error": f"Failed to fetch market data. Error: {str(e)}"}), 500
+    return jsonify({
+        "ticker": ticker,
+        "market_data": hist.to_dict(orient="records"),
+        "predictions": predicted_prices,
+        "news_sentiment": analyzed_news,
+        "congress_trades": congress_trades
+    })
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    socketio.run(app, host="0.0.0.0", port=8080, debug=True)
