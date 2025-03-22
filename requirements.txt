@@ -8,3 +8,5 @@ requests
 torch
 prophet
 transformers
+beautifulsoup4
+feedparser
