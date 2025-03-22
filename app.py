@@ -1,24 +1,25 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yfinance as yf
-import requests
 import pandas as pd
 from prophet import Prophet
+from bs4 import BeautifulSoup
+import feedparser
+from transformers import pipeline
 import traceback
 
 app = Flask(__name__)
-
-# ✅ Allow all frontend requests (Fixes CORS)
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+
+# ✅ Load local AI summarizer model (lightweight + accurate)
+summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    print("ERROR:", traceback.format_exc())  # Debugging
-    response = jsonify({"error": str(e)})
-    response.status_code = 500
-    return response
+    print("ERROR:", traceback.format_exc())
+    return jsonify({"error": str(e)}), 500
 
-# ✅ Fetch Real-Time Stock Data
+# ✅ Get 6 months of historical stock data
 def fetch_real_time_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -32,10 +33,10 @@ def fetch_real_time_data(ticker):
         print("Error in fetch_real_time_data:", e)
         return None
 
-# ✅ AI Price Prediction using Prophet
+# ✅ Forecast prices using Prophet
 def predict_prices(df):
     if df is None or df.empty:
-        return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
+        return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A", "probability": "N/A"}
     try:
         df = df.rename(columns={"Date": "ds", "Close": "y"})
         model = Prophet()
@@ -46,26 +47,35 @@ def predict_prices(df):
             "next_day": round(forecast.iloc[-30]["yhat"], 2),
             "next_week": round(forecast.iloc[-7]["yhat"], 2),
             "next_month": round(forecast.iloc[-1]["yhat"], 2),
+            "probability": 80.0  # Static for now, can improve later
         }
     except Exception as e:
         print("Error in predict_prices:", e)
-        return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A"}
+        return {"next_day": "N/A", "next_week": "N/A", "next_month": "N/A", "probability": "N/A"}
 
-# ✅ Summarize News for AI Insights
+# ✅ Get and summarize news using RSS + Transformers
 def summarize_news(ticker):
-    API_KEY = "YOUR_NEWSAPI_KEY"
-    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&apiKey={API_KEY}"
     try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            articles = response.json().get("articles", [])[:5]
-            summary = " ".join([article["description"] for article in articles if article["description"]])
-            return summary if summary else "No financial news available."
+        url = f"https://news.google.com/rss/search?q={ticker}+stock&hl=en-US&gl=US&ceid=US:en"
+        feed = feedparser.parse(url)
+        descriptions = []
+
+        for entry in feed.entries[:5]:
+            soup = BeautifulSoup(entry.description, "html.parser")
+            text = soup.get_text()
+            descriptions.append(text)
+
+        combined_text = " ".join(descriptions)
+        if not combined_text.strip():
+            return "No financial news available."
+
+        summary = summarizer(combined_text, max_length=100, min_length=30, do_sample=False)
+        return summary[0]["summary_text"]
     except Exception as e:
         print("Error in summarize_news:", e)
-    return "No financial news available."
+        return "No financial news available."
 
-# ✅ API Route
+# ✅ API endpoint
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     try:
@@ -75,16 +85,16 @@ def analyze():
 
         hist = fetch_real_time_data(ticker)
         if hist is None:
-            return jsonify({"error": f"No data for {ticker}."}), 404
+            return jsonify({"error": f"No data found for {ticker}."}), 404
 
-        predicted_prices = predict_prices(hist)
+        predictions = predict_prices(hist)
         news_summary = summarize_news(ticker)
 
         return jsonify({
             "ticker": ticker,
             "market_data": hist.to_dict(orient="records"),
-            "predictions": predicted_prices,
-            "news_summary": news_summary,
+            "predictions": predictions,
+            "news_summary": news_summary
         })
     except Exception as e:
         print("Error in /api/analyze:", e)
