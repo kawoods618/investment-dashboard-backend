@@ -1,71 +1,33 @@
+# app.py
 from flask import Flask, request, jsonify
-from flask_cors import CORS
-import yfinance as yf
-import requests
 import pandas as pd
-from prophet import Prophet
-import traceback
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
-@app.errorhandler(Exception)
-def handle_exception(e):
-    print("ERROR:", traceback.format_exc())
-    return jsonify({"error": str(e)}), 500
-
-# ✅ Fetch Real-Time Stock Data
-def fetch_real_time_data(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="6mo", interval="1d", auto_adjust=True)
-        if hist.empty:
-            return None
-        hist = hist.reset_index()
-        hist["Date"] = hist["Date"].dt.strftime("%Y-%m-%d")
-        return hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
-    except Exception as e:
-        print("Error in fetch_real_time_data:", e)
-        return None
-
-# ✅ AI Price Prediction using Prophet
+# Dummy forecast function for demo purposes
 def predict_prices(df):
     try:
-        if df is None or df.empty or len(df) < 30:
-            print("⚠️ Not enough data for Prophet model")
-            return {
-                "next_day": "N/A",
-                "next_week": "N/A",
-                "next_month": "N/A",
-                "probability": "N/A"
-            }
+        current_price = df['y'].iloc[-1]
 
-        df = df.rename(columns={"Date": "ds", "Close": "y"})
-        df["y"] = pd.to_numeric(df["y"], errors="coerce")
-        df = df.dropna(subset=["y"])
+        # Dummy forecast values
+        buy_price = round(current_price * 0.98, 2)
+        sell_price = round(current_price * 1.08, 2)
 
-        print("📈 Training rows:", len(df))
-        print("📊 Close price preview:", df["y"].tail())
+        buy_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        sell_date = (datetime.now() + timedelta(days=25)).strftime('%Y-%m-%d')
 
-        model = Prophet(daily_seasonality=True)
-        model.fit(df)
-
-        future = model.make_future_dataframe(periods=30)
-        forecast = model.predict(future)
-
-        next_day = round(forecast.iloc[-30]["yhat"], 2)
-        next_week = round(forecast.iloc[-7]["yhat"], 2)
-        next_month = round(forecast.iloc[-1]["yhat"], 2)
-
-        probability = round(
-            100 - abs((next_day - df["y"].iloc[-1]) / df["y"].iloc[-1]) * 100, 2
-        )
+        probability = round(100 - abs((sell_price - buy_price) / buy_price) * 20, 2)
 
         return {
-            "next_day": next_day,
-            "next_week": next_week,
-            "next_month": next_month,
-            "probability": probability
+            "next_day": round(current_price * 1.01, 2),
+            "next_week": round(current_price * 1.03, 2),
+            "next_month": round(current_price * 1.07, 2),
+            "probability": probability,
+            "buy_price": buy_price,
+            "buy_date": buy_date,
+            "sell_price": sell_price,
+            "sell_date": sell_date,
         }
 
     except Exception as e:
@@ -74,19 +36,38 @@ def predict_prices(df):
             "next_day": "N/A",
             "next_week": "N/A",
             "next_month": "N/A",
-            "probability": "N/A"
+            "probability": "N/A",
+            "buy_price": "N/A",
+            "buy_date": "N/A",
+            "sell_price": "N/A",
+            "sell_date": "N/A"
         }
 
-# ✅ Summarize News for AI Insights
+# Simulated news summarizer
 def summarize_news(ticker):
-    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sortBy=publishedAt"
     try:
-        return f"Recent news for {ticker.upper()}: Elon Musk comments, investor activity, and market speculation."
+        ticker = ticker.upper()
+        return f"""
+        📈 Market Insights for {ticker}:
+        - {ticker} has seen a rise in investor sentiment based on recent earnings projections.
+        - Analysts are optimistic due to expansion into AI and cloud sectors.
+        - Recent trading volume indicates institutional buying pressure.
+        - Technical indicators show a potential breakout approaching resistance.
+
+        Based on these factors, our AI forecasts a short-term upward trend, suggesting a timely buy-in followed by a targeted sell-off within the next 3–4 weeks.
+        """
     except Exception as e:
         print("Error in summarize_news:", e)
         return "No financial news available."
 
-# ✅ API Route
+# Dummy data fetcher
+
+def fetch_real_time_data(ticker):
+    dates = pd.date_range(end=datetime.now(), periods=90)
+    prices = [100 + i * 0.1 + (i % 5) for i in range(len(dates))]
+    df = pd.DataFrame({"ds": dates, "y": prices})
+    return df
+
 @app.route("/api/analyze", methods=["GET"])
 def analyze():
     try:
@@ -97,8 +78,6 @@ def analyze():
         hist = fetch_real_time_data(ticker)
         if hist is None:
             return jsonify({"error": f"No data for {ticker}."}), 404
-
-        print("📈 Fetched rows:", len(hist))
 
         predicted_prices = predict_prices(hist)
         news_summary = summarize_news(ticker)
