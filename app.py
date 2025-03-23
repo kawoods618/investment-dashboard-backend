@@ -31,7 +31,7 @@ def fetch_real_time_data(ticker):
 # ✅ AI Price Prediction using Prophet
 def predict_prices(df):
     try:
-        if df is None or df.empty or len(df) < 60:
+        if df is None or df.empty or len(df) < 30:
             print("⚠️ Not enough data for Prophet model")
             return {
                 "next_day": "N/A",
@@ -41,7 +41,11 @@ def predict_prices(df):
             }
 
         df = df.rename(columns={"Date": "ds", "Close": "y"})
-        df["y"] = df["y"].astype(float)
+        df["y"] = pd.to_numeric(df["y"], errors="coerce")
+        df = df.dropna(subset=["y"])
+
+        print("📈 Training rows:", len(df))
+        print("📊 Close price preview:", df["y"].tail())
 
         model = Prophet(daily_seasonality=True)
         model.fit(df)
@@ -77,10 +81,7 @@ def predict_prices(df):
 def summarize_news(ticker):
     url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sortBy=publishedAt"
     try:
-        # Use a demo news summary (replace with API or GPT summary if needed)
-        return (
-            f"Recent news for {ticker.upper()}: Elon Musk comments, investor activity, and market speculation."
-        )
+        return f"Recent news for {ticker.upper()}: Elon Musk comments, investor activity, and market speculation."
     except Exception as e:
         print("Error in summarize_news:", e)
         return "No financial news available."
@@ -96,6 +97,8 @@ def analyze():
         hist = fetch_real_time_data(ticker)
         if hist is None:
             return jsonify({"error": f"No data for {ticker}."}), 404
+
+        print("📈 Fetched rows:", len(hist))
 
         predicted_prices = predict_prices(hist)
         news_summary = summarize_news(ticker)
