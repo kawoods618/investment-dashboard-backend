@@ -1,9 +1,10 @@
-# app.py
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # ✅ Add this
 import pandas as pd
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
+CORS(app)  # ✅ This enables cross-origin access
 
 # Dummy forecast function for demo purposes
 def predict_prices(df):
